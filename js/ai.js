@@ -138,7 +138,7 @@ async function callGemini({ parts, schema, temperature = 0.2, maxTokens = 1024 }
             maxOutputTokens: maxTokens,
             responseMimeType: 'application/json',
             responseSchema: schema,
-            ...(/^gemini-2\.5/.test(modelName()) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+            ...(/^gemini-2\.5-flash/.test(modelName()) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
         }),
         signal: controller.signal,
