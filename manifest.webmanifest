@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Норма — дневник калорий",
   "short_name": "Норма",
-  "description": "Дневник калорий и БЖУ: считает норму, ведёт питание и вес. Работает офлайн.",
+  "description": "Дневник калорий и БЖУ: норма, сканер штрихкодов, AI-оценка блюда по фото. Работает офлайн.",
   "lang": "ru",
   "dir": "ltr",
   "start_url": "./",
@@ -39,6 +39,13 @@
       "type": "image/png",
       "form_factor": "narrow",
       "label": "База продуктов"
+    },
+    {
+      "src": "screenshots/ai-result.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "AI-оценка блюда"
     }
   ]
 }

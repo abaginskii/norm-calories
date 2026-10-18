@@ -1,10 +1,12 @@
 import {
   state, MEALS, todayISO, addDays, getDay, dayTotals, mealTotals,
-  formatDayTitle, formatDaySub, streak,
+  formatDayTitle, formatDaySub, streak, mealForNow,
 } from '../store.js';
 import { computeTargets, ratio } from '../calc.js';
 import { icon, esc, fmt, calorieRing } from '../ui.js';
-import { openFoodPicker, openEntryEditor, openQuickAdd } from './picker.js';
+import { openFoodPicker, openEntryEditor, openQuickAdd, openProductEditor } from './picker.js';
+import { openScanner } from '../scan.js';
+import { openAIEstimate, openAIHint } from '../ai.js';
 
 let iso = todayISO();
 
@@ -114,9 +116,24 @@ export function render(root) {
 
     ${!isToday ? '<div class="center mb-8"><button class="link-btn" type="button" data-today-link>К сегодняшнему дню</button></div>' : ''}
 
+    <div class="quick-actions">
+      <button class="quick-action" type="button" data-scan>
+        <span class="quick-action__icon">${icon('barcode')}</span>
+        <span class="quick-action__label">Сканер</span>
+      </button>
+      <button class="quick-action" type="button" data-ai>
+        <span class="quick-action__icon quick-action__icon--accent">${icon('sparkles')}</span>
+        <span class="quick-action__label">AI-оценка</span>
+      </button>
+      <button class="quick-action" type="button" data-hint>
+        <span class="quick-action__icon">${icon('flame')}</span>
+        <span class="quick-action__label">Что добрать</span>
+      </button>
+    </div>
+
     ${MEALS.map(mealHtml).join('')}
 
-    <button class="btn btn--block" type="button" data-quick>${icon('flame')} Быстрое добавление</button>
+    <button class="btn btn--block btn--quiet" type="button" data-quick>${icon('flame')} Быстрое добавление</button>
     <p class="tiny muted center mt-16">Данные хранятся только на этом устройстве</p>
   `;
 
@@ -155,5 +172,21 @@ export function render(root) {
 
   root.querySelector('[data-quick]').addEventListener('click', () => {
     openQuickAdd({ iso });
+  });
+
+  root.querySelector('[data-scan]').addEventListener('click', () => {
+    openScanner({
+      iso,
+      meal: mealForNow(),
+      createProduct: (code) => openProductEditor({ barcode: code }),
+    });
+  });
+
+  root.querySelector('[data-ai]').addEventListener('click', () => {
+    openAIEstimate({ iso, meal: mealForNow() });
+  });
+
+  root.querySelector('[data-hint]').addEventListener('click', () => {
+    openAIHint({ iso });
   });
 }

@@ -1,8 +1,9 @@
 import {
   state, MEALS, addEntry, updateEntry, removeEntry, customFood, updateCustomFood,
-  deleteCustomFood, toggleFavorite, isFavorite, formatFullDate,
+  deleteCustomFood, toggleFavorite, isFavorite, formatFullDate, mealForNow,
 } from '../store.js';
 import { FOODS, foodById, searchFoods, CATEGORIES } from '../foods.js';
+import { openScanner } from '../scan.js';
 import { openSheet, icon, fmt, fmt1, esc, toast, qs, qsa, confirmAction } from '../ui.js';
 
 const TABS = [
@@ -18,14 +19,6 @@ function lookupFood(id) {
 
 function mealName(id) {
   return (MEALS.find((m) => m.id === id) || MEALS[0]).name;
-}
-
-function mealIdForNow() {
-  const hour = new Date().getHours();
-  if (hour < 11) return 'breakfast';
-  if (hour < 16) return 'lunch';
-  if (hour < 19) return 'dinner';
-  return 'snack';
 }
 
 function allFoods() {
@@ -66,7 +59,7 @@ function previewHtml(food, grams) {
 
 /* ---------- Выбор продукта ---------- */
 
-export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, startFood = null }) {
+export function openFoodPicker({ iso, meal = mealForNow(), onDone = null, startFood = null }) {
   let tab = state.recents.length ? 'recent' : 'all';
   let category = 'Все';
   let query = '';
@@ -76,7 +69,7 @@ export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, star
     title: 'Добавить еду',
     subtitle: formatFullDate(iso),
     body: '',
-    footer: `<button class="btn btn--ghost btn--block" type="button" data-create>${icon('plus')} Свой продукт</button>`,
+    footer: listFooter(),
   });
 
   const body = document.createElement('div');
@@ -175,13 +168,29 @@ export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, star
     renderList();
   });
 
-  qs('[data-create]', sheet.footer).addEventListener('click', () => {
-    openProductEditor({
-      onSaved: (food) => {
-        showAmount(food);
-      },
+  function listFooter() {
+    return `
+      <div class="btn-row">
+        <button class="btn" type="button" data-scan>${icon('barcode')} Сканер</button>
+        <button class="btn" type="button" data-create>${icon('plus')} Свой продукт</button>
+      </div>`;
+  }
+
+  function bindListFooter() {
+    qs('[data-create]', sheet.footer).addEventListener('click', () => {
+      openProductEditor({ onSaved: (food) => showAmount(food) });
     });
-  });
+    qs('[data-scan]', sheet.footer).addEventListener('click', () => {
+      openScanner({
+        iso,
+        meal: currentMeal,
+        createProduct: (code) => openProductEditor({
+          barcode: code,
+          onSaved: (food) => showAmount(food),
+        }),
+      });
+    });
+  }
 
   function showAmount(food) {
     sheet.setTitle(food.name, `на 100 г — ${Math.round(food.kcal)} ккал`);
@@ -273,10 +282,7 @@ export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, star
     });
 
     qs('[data-back]', sheet.footer).addEventListener('click', () => {
-      sheet.setTitle('Добавить еду', formatFullDate(iso));
-      sheet.setBody(body);
-      sheet.setFooter(`<button class="btn btn--ghost btn--block" type="button" data-create>${icon('plus')} Свой продукт</button>`);
-      wireCreate();
+      shopBack();
       renderTabs();
       renderCats();
       renderList();
@@ -293,15 +299,17 @@ export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, star
     sync();
   }
 
-  function wireCreate() {
-    qs('[data-create]', sheet.footer).addEventListener('click', () => {
-      openProductEditor({ onSaved: (food) => showAmount(food) });
-    });
+  function shopBack() {
+    sheet.setTitle('Добавить еду', formatFullDate(iso));
+    sheet.setBody(body);
+    sheet.setFooter(listFooter());
+    bindListFooter();
   }
 
   renderTabs();
   renderCats();
   renderList();
+  bindListFooter();
 
   if (startFood) showAmount(startFood);
   return sheet;
@@ -309,7 +317,7 @@ export function openFoodPicker({ iso, meal = mealIdForNow(), onDone = null, star
 
 /* ---------- Быстрое добавление калорий ---------- */
 
-export function openQuickAdd({ iso, meal = mealIdForNow(), onDone = null }) {
+export function openQuickAdd({ iso, meal = mealForNow(), onDone = null }) {
   let currentMeal = meal;
   const sheet = openSheet({
     title: 'Быстрое добавление',
@@ -441,9 +449,9 @@ export function openEntryEditor({ iso, entry, onDone = null }) {
 
 /* ---------- Свой продукт ---------- */
 
-export function openProductEditor({ food = null, onSaved = null, onDeleted = null } = {}) {
+export function openProductEditor({ food = null, barcode = null, onSaved = null, onDeleted = null } = {}) {
   const editing = Boolean(food);
-  const initial = food || { name: '', kcal: '', protein: '', fat: '', carb: '' };
+  const initial = food || { name: '', kcal: '', protein: '', fat: '', carb: '', barcode: barcode || '' };
 
   const sheet = openSheet({
     title: editing ? 'Изменить продукт' : 'Свой продукт',
@@ -461,6 +469,10 @@ export function openProductEditor({ food = null, onSaved = null, onDeleted = nul
         <label class="field"><span class="field__label">Жиры, г</span><input class="input" data-fat type="number" inputmode="decimal" min="0" value="${initial.fat}" placeholder="0"></label>
         <label class="field"><span class="field__label">Углеводы, г</span><input class="input" data-carb type="number" inputmode="decimal" min="0" value="${initial.carb}" placeholder="0"></label>
       </div>
+      <label class="field">
+        <span class="field__label">Штрихкод (необязательно)</span>
+        <input class="input" data-barcode inputmode="numeric" value="${esc(initial.barcode || '')}" placeholder="4600000000000">
+      </label>
       <p class="field__hint">Продукт сохранится только на этом устройстве.</p>`,
     footer: `
       <div class="btn-row">
@@ -480,6 +492,7 @@ export function openProductEditor({ food = null, onSaved = null, onDeleted = nul
       protein: Number(qs('[data-protein]', sheet.body).value) || 0,
       fat: Number(qs('[data-fat]', sheet.body).value) || 0,
       carb: Number(qs('[data-carb]', sheet.body).value) || 0,
+      barcode: String(qs('[data-barcode]', sheet.body).value || '').replace(/\D/g, '') || null,
       cat: 'Мои',
       custom: true,
     };

@@ -120,6 +120,13 @@ function stepIntro(container) {
           </div>
         </div>
         <div class="list-row" style="cursor:default">
+          <div class="list-row__icon">${icon('barcode')}</div>
+          <div class="list-row__body">
+            <div class="list-row__title">Сканер штрихкодов</div>
+            <div class="list-row__sub">и AI-оценка блюда по фото</div>
+          </div>
+        </div>
+        <div class="list-row" style="cursor:default">
           <div class="list-row__icon">${icon('download')}</div>
           <div class="list-row__body">
             <div class="list-row__title">Работает офлайн</div>

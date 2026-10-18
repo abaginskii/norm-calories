@@ -27,6 +27,13 @@ const ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4z"/>',
   install: '<rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M12 7.5v5"/><path d="M9.5 10.5l2.5 2.5 2.5-2.5"/>',
   leaf: '<path d="M4 20c0-8 5-14 15-15-1 10-6.5 15-15 15z"/><path d="M4 20c3-6 7-9 11-10.5"/>',
+  barcode: '<path d="M3 5v14M6 5v14M9 5v9M12 5v14M15 5v11M18 5v14M21 5v9"/>',
+  camera: '<path d="M4 8h3l1.6-2.2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/>',
+  sparkles: '<path d="M12 3l1.7 4.6L18.3 9l-4.6 1.4L12 15l-1.7-4.6L5.7 9l4.6-1.4z"/><path d="M18.5 14.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/>',
+  key: '<circle cx="8" cy="12" r="3.6"/><path d="M11.6 12H21M18.4 12v3M15.2 12v2"/>',
+  text: '<path d="M4 6h16M4 12h10M4 18h13"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4.5V11h-6.5"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 2.5-2.5L20 18"/>',
 };
 
 export function icon(name, cls = '') {
@@ -83,7 +90,8 @@ export function toast(message, duration = 2200) {
 let activeSheet = null;
 
 export function openSheet({ title, subtitle = '', body = '', footer = '', onClose = null }) {
-  if (activeSheet) activeSheet.close({ silent: true });
+  // Предыдущий лист убираем сразу: новый всё равно перекрывает его.
+  if (activeSheet) activeSheet.close({ silent: true, immediate: true });
 
   const root = qs('#sheet-root');
   const backdrop = el('<div class="sheet-backdrop"></div>');
@@ -119,16 +127,23 @@ export function openSheet({ title, subtitle = '', body = '', footer = '', onClos
 
   const previousFocus = document.activeElement;
 
-  const close = ({ silent = false } = {}) => {
+  const close = ({ silent = false, immediate = false } = {}) => {
     if (!sheet.isConnected) return;
     sheet.classList.remove('sheet--open');
     backdrop.classList.remove('sheet-backdrop--open');
+    sheet.classList.add('sheet--closing');
+    backdrop.classList.add('sheet-backdrop--closing');
     document.body.style.overflow = '';
-    activeSheet = null;
-    setTimeout(() => {
+    if (activeSheet && activeSheet.el === sheet) activeSheet = null;
+    if (immediate) {
       sheet.remove();
       backdrop.remove();
-    }, 260);
+    } else {
+      setTimeout(() => {
+        sheet.remove();
+        backdrop.remove();
+      }, 260);
+    }
     if (previousFocus && previousFocus.focus) setTimeout(() => previousFocus.focus(), 60);
     if (!silent) onClose?.();
   };
@@ -256,8 +271,8 @@ export function calorieRing({ consumed, target, over = false }) {
                 stroke-dasharray="100" stroke-dashoffset="${(100 - dash).toFixed(2)}"/>
       </svg>
       <div class="ring__center">
-        <div class="ring__num">${fmt(Math.round(consumed))}<small> ккал</small></div>
-        <div class="ring__caption">${over ? `на ${fmt(Math.round(consumed - target))} больше нормы` : `из ${fmt(target)}`}</div>
+        <div class="ring__num" data-consumed>${fmt(Math.round(consumed))}</div>
+        <div class="ring__caption">${over ? `перебор ${fmt(Math.round(consumed - target))} ккал` : `из ${fmt(target)} ккал`}</div>
       </div>
     </div>`;
 }

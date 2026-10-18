@@ -33,7 +33,7 @@ function currentRoute() {
 function buildTabbar() {
   tabbarEl.innerHTML = TABS.map((tab) => `
     <button class="tab" type="button" data-tab="${tab.id}" aria-label="${tab.label}">
-      ${icon(tab.icon)}
+      <span class="tab__icon">${icon(tab.icon)}</span>
       <span class="tab__label">${tab.label}</span>
     </button>`).join('');
 
@@ -102,6 +102,8 @@ function scheduleRender() {
   scheduled = true;
   requestAnimationFrame(render);
 }
+
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
 window.addEventListener('hashchange', () => {
   lastRoute = null;

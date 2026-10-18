@@ -28,6 +28,8 @@ function blankState() {
     recents: [],
     favorites: [],
     settings: { theme: 'auto' },
+    ai: { key: '', model: 'gemini-2.5-flash' },
+    barcodeCache: {},
   };
 }
 
@@ -42,6 +44,8 @@ function normalize(raw) {
     recents: Array.isArray(raw.recents) ? raw.recents : [],
     favorites: Array.isArray(raw.favorites) ? raw.favorites : [],
     settings: { ...base.settings, ...(raw.settings || {}) },
+    ai: { ...base.ai, ...(raw.ai || {}) },
+    barcodeCache: raw.barcodeCache && typeof raw.barcodeCache === 'object' ? raw.barcodeCache : {},
   };
 }
 
@@ -105,6 +109,14 @@ export function resetState() {
 }
 
 /* ---------- Даты ---------- */
+
+export function mealForNow() {
+  const hour = new Date().getHours();
+  if (hour < 11) return 'breakfast';
+  if (hour < 16) return 'lunch';
+  if (hour < 19) return 'dinner';
+  return 'snack';
+}
 
 export function isoDate(date = new Date()) {
   const y = date.getFullYear();
@@ -237,6 +249,26 @@ export function addEntry(iso, mealId, food, grams) {
   return entry;
 }
 
+export function addEntries(iso, mealId, foods) {
+  if (!foods.length) return [];
+  const created = foods.map((food) => ({
+    id: uid(),
+    foodId: food.id || null,
+    name: food.name,
+    per: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb },
+    grams: Math.max(1, Math.round(Number(food.grams) || 0)),
+    meal: mealId,
+    createdAt: Date.now(),
+  }));
+  update((s) => {
+    const day = s.days[iso] || (s.days[iso] = { meals: {} });
+    if (!day.meals) day.meals = {};
+    if (!Array.isArray(day.meals[mealId])) day.meals[mealId] = [];
+    day.meals[mealId].push(...created);
+  });
+  return created;
+}
+
 export function updateEntry(iso, entryId, patch) {
   update((s) => {
     const day = s.days[iso];
@@ -314,6 +346,8 @@ export function customFood(food) {
   const item = {
     id: `c_${uid()}`,
     name: String(food.name).trim(),
+    barcode: food.barcode || null,
+    brand: food.brand || '',
     cat: 'Мои',
     kcal: round1(food.kcal),
     protein: round1(food.protein),
@@ -338,6 +372,32 @@ export function deleteCustomFood(id) {
     s.favorites = s.favorites.filter((fid) => fid !== id);
     s.recents = s.recents.filter((fid) => fid !== id);
   });
+}
+
+/* ---------- AI и штрихкоды ---------- */
+
+export function setAI(patch) {
+  update((s) => {
+    s.ai = { ...s.ai, ...patch };
+  });
+}
+
+export function cacheBarcode(product) {
+  update((s) => {
+    if (!s.barcodeCache) s.barcodeCache = {};
+    s.barcodeCache[product.barcode] = product;
+    const keys = Object.keys(s.barcodeCache);
+    if (keys.length > 60) delete s.barcodeCache[keys[0]];
+  });
+}
+
+export function cachedBarcode(code) {
+  return (state.barcodeCache && state.barcodeCache[code]) || null;
+}
+
+export function exportPayload() {
+  const { ai, ...rest } = state;
+  return { ...rest, ai: { key: '', model: (ai && ai.model) || 'gemini-2.5-flash' } };
 }
 
 export function toggleFavorite(foodId) {

@@ -1,11 +1,12 @@
 import {
-  state, update, replaceState, resetState, ACTIVITY, todayISO, formatNumber,
+  state, update, replaceState, resetState, ACTIVITY, todayISO, exportPayload,
 } from '../store.js';
 import { computeTargets, bmi, bmiLabel } from '../calc.js';
 import { icon, esc, fmt, fmt1, toast, openSheet, confirmAction, qs, qsa, segmented } from '../ui.js';
 import { applyTheme } from '../theme.js';
 import { canInstall, promptInstall, isStandalone, isIOS } from '../pwa.js';
 import { APP_VERSION, REPO_URL } from '../config.js';
+import { openAISettings, hasKey } from '../ai.js';
 
 const GOALS = [
   { id: 'lose', name: 'Похудеть' },
@@ -26,7 +27,7 @@ function targetRow(label, value, unit = 'г') {
 
 function installSheet() {
   const ios = isIOS();
-  openSheet({
+  const sheet = openSheet({
     title: 'Установить «Норму»',
     subtitle: 'Открывается как обычное приложение',
     body: `
@@ -43,9 +44,8 @@ function installSheet() {
       </ol>
       <p class="small muted mt-16" style="line-height:1.5">После установки приложение работает офлайн, а данные остаются на устройстве.</p>`,
     footer: '<button class="btn btn--block btn--primary" type="button" data-close>Понятно</button>',
-  }).footer.querySelector('[data-close]').addEventListener('click', () => {
-    document.querySelector('.sheet__close')?.click();
   });
+  sheet.footer.querySelector('[data-close]').addEventListener('click', () => sheet.close());
 }
 
 export function header() {
@@ -143,6 +143,15 @@ export function render(root) {
         <button class="btn btn--sm" type="button" data-edit-targets>Изменить вручную</button>
         ${state.targets && state.targets.manual ? '<button class="btn btn--sm btn--ghost" type="button" data-auto-targets>Вернуть расчёт</button>' : ''}
       </div>
+    </section>
+
+    <section class="card">
+      <div class="card__head">
+        <span class="card__title">AI-помощник</span>
+        <span class="card__aside">${hasKey() ? 'ключ добавлен' : 'не подключён'}</span>
+      </div>
+      <p class="small muted" style="line-height:1.5">Оценка блюда по фото или описанию и подсказки по БЖУ. Работает на вашем ключе Google Gemini — он хранится только на этом устройстве.</p>
+      <button class="btn btn--block mt-16" type="button" data-ai>${icon('sparkles')} ${hasKey() ? 'Настроить ключ' : 'Добавить ключ'}</button>
     </section>
 
     <section class="card">
@@ -314,9 +323,14 @@ export function render(root) {
     { name: 'Тема оформления' },
   ));
 
+  // AI
+  root.querySelector('[data-ai]').addEventListener('click', () => {
+    openAISettings();
+  });
+
   // Экспорт
   root.querySelector('[data-export]').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

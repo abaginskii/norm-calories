@@ -1,5 +1,5 @@
 /* Service worker: офлайн-режим и мгновенный запуск приложения. */
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const CACHE = `norm-${VERSION}`;
 const SHELL = './index.html';
 
@@ -9,12 +9,15 @@ const ASSETS = [
   './styles.css',
   './manifest.webmanifest',
   './icons/favicon.svg',
+  './icons/favicon.ico',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/maskable-512.png',
   './icons/apple-touch-icon.png',
   './js/app.js',
   './js/config.js',
+  './js/ai.js',
+  './js/scan.js',
   './js/store.js',
   './js/calc.js',
   './js/foods.js',
@@ -27,6 +30,7 @@ const ASSETS = [
   './js/views/products.js',
   './js/views/progress.js',
   './js/views/profile.js',
+  './vendor/zxing.min.js',
 ];
 
 self.addEventListener('install', (event) => {
