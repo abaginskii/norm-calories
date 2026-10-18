@@ -84,6 +84,7 @@ a { color: var(--primary); text-decoration: none; }
 .app {
   max-width: 560px;
   margin: 0 auto;
+  min-height: 100vh;
   min-height: 100dvh;
   position: relative;
   padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 16px);
@@ -231,6 +232,8 @@ a { color: var(--primary); text-decoration: none; }
 .ring-foot {
   grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 3px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -249,6 +252,7 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 6px;
   font-size: 12.5px;
   margin-bottom: 5px;
   color: var(--muted);
@@ -981,6 +985,7 @@ a { color: var(--primary); text-decoration: none; }
 /* ---------- Онбординг ---------- */
 
 .onb {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -1172,4 +1177,36 @@ a { color: var(--primary); text-decoration: none; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+
+/* Очень узкие экраны (iPhone SE и старше) */
+@media (max-width: 359px) {
+  .view { padding: 0 12px; }
+
+  .topbar { padding: 12px 12px 8px; gap: 8px; }
+  .topbar__title { font-size: 20px; }
+  .topbar__sub { display: none; }
+  .topbar__action { height: 34px; padding: 0 11px; font-size: 13px; }
+  .brand-mark { width: 30px; height: 30px; border-radius: 10px; }
+  .brand-mark svg { width: 16px; height: 16px; }
+
+  .card { padding: 14px; border-radius: 18px; }
+
+  .ring-card { grid-template-columns: 112px 1fr; gap: 12px; padding: 14px 12px; }
+  .ring { width: 112px; height: 112px; }
+  .ring__num { font-size: 22px; }
+  .ring__num small { font-size: 11px; }
+  .ring__caption { font-size: 10px; }
+  .macros { gap: 9px; }
+  .macro__top { flex-wrap: wrap; row-gap: 1px; font-size: 12px; }
+  .macro__bar { height: 6px; }
+
+  .day-nav__label { font-size: 14px; }
+  .stat__value { font-size: 19px; }
+  .entry__name, .food-row__name { font-size: 14px; }
+  .entry__meta, .food-row__meta { font-size: 11px; }
+  .btn { font-size: 14px; }
+  .tabbar { padding: 0 4px; }
+  .tab__label { font-size: 10px; }
 }
