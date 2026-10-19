@@ -76,77 +76,94 @@ const TEXT_PROMPT = [
 ].join(' ');
 
 export class AIError extends Error {
-  constructor(kind, message) {
+  constructor(kind, message, extra = {}) {
     super(message);
     this.kind = kind;
+    this.status = extra.status || 0;
+    this.details = extra.details || '';
   }
 }
 
 export function hasKey() {
-  return Boolean(state.ai && state.ai.key);
+  const ai = state.ai || {};
+  return Boolean((ai.key && ai.key.trim()) || (ai.proxy && ai.proxy.trim()));
 }
 
 function modelName() {
-  return (state.ai && state.ai.model) || DEFAULT_MODEL;
+  return ((state.ai && state.ai.model) || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+}
+
+function apiBase() {
+  const proxy = ((state.ai && state.ai.proxy) || '').trim();
+  return proxy ? proxy.replace(/\/+$/, '') : 'https://generativelanguage.googleapis.com';
+}
+
+function apiUrl(path) {
+  const key = ((state.ai && state.ai.key) || '').trim();
+  const base = apiBase();
+  const url = `${base}${path}`;
+  if (!key) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}key=${encodeURIComponent(key)}`;
 }
 
 function extractJson(text) {
   const clean = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   const start = clean.indexOf('{');
   const end = clean.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new AIError('parse', 'Пустой ответ модели');
-  return JSON.parse(clean.slice(start, end + 1));
+  if (start < 0 || end <= start) throw new AIError('parse', 'Модель вернула не JSON. Попробуйте ещё раз.');
+  try {
+    return JSON.parse(clean.slice(start, end + 1));
+  } catch (err) {
+    throw new AIError('parse', 'Не удалось разобрать ответ модели. Попробуйте ещё раз.');
+  }
 }
 
 function mapHttpError(status, payload) {
-  const message = payload && payload.error && payload.error.message ? payload.error.message : '';
-  if (status === 400 && /api key not valid/i.test(message)) {
-    return new AIError('key', 'Ключ не подошёл. Проверьте его в профиле.');
+  const message = (payload && payload.error && payload.error.message) || '';
+  const details = payload ? JSON.stringify(payload).slice(0, 700) : '';
+  const make = (kind, text) => new AIError(kind, text, { status, details });
+
+  if (/location is not supported|not available in your (country|region)/i.test(message)) {
+    return make('location', 'Google не поддерживает Gemini из вашего региона. Включите VPN или укажите прокси в настройках AI.');
   }
-  if (status === 401 || (status === 403 && /api key/i.test(message))) {
-    return new AIError('key', 'Ключ отклонён. Проверьте его и ограничения проекта.');
+  if (/API key not valid|API_KEY_INVALID|invalid api key/i.test(message)) {
+    return make('key', 'Ключ не подошёл. Проверьте его в AI Studio и скопируйте целиком.');
   }
-  if (status === 429) {
-    return new AIError('quota', 'Лимит запросов исчерпан. Попробуйте позже.');
+  if (/API has not been used|SERVICE_DISABLED|it is disabled/i.test(message)) {
+    return make('disabled', 'В проекте не включён Generative Language API. Включите его в Google Cloud Console или создайте ключ в AI Studio.');
   }
-  if (status === 404) {
-    return new AIError('model', 'Модель недоступна. Укажите другую в настройках AI.');
+  if (/RESOURCE_EXHAUSTED|quota|exceeded your current quota/i.test(message)) {
+    return make('quota', 'Лимит запросов исчерпан. Подождите минуту или смените ключ/модель.');
+  }
+  if (status === 404 || /not found for API version|is not found for|not supported for/i.test(message)) {
+    return make('model', 'Модель недоступна. Укажите другую, например gemini-2.5-flash.');
+  }
+  if (status === 403 && /permission|forbidden/i.test(message)) {
+    return make('permission', 'У ключа нет доступа к Gemini. Проверьте ограничения ключа в Google Cloud.');
   }
   if (status >= 500) {
-    return new AIError('server', 'Gemini временно недоступен. Попробуйте ещё раз.');
+    return make('server', 'Gemini временно недоступен. Попробуйте ещё раз.');
   }
-  return new AIError('http', message || `Ошибка Gemini (${status})`);
+  return make('http', message || `Ошибка Gemini (${status})`);
 }
 
-async function callGemini({ parts, schema, temperature = 0.2, maxTokens = 1024 }) {
+async function requestGemini(body, { timeout = 60000 } = {}) {
   if (!hasKey()) throw new AIError('no-key', 'Сначала добавьте ключ Gemini.');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
+  const timer = setTimeout(() => controller.abort(), timeout);
   let response;
 
   try {
-    response = await fetch(
-      `${ENDPOINT}/${encodeURIComponent(modelName())}:generateContent?key=${encodeURIComponent(state.ai.key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts }],
-          generationConfig: {
-            temperature,
-            maxOutputTokens: maxTokens,
-            responseMimeType: 'application/json',
-            responseSchema: schema,
-            ...(/^gemini-2\.5-flash/.test(modelName()) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          },
-        }),
-        signal: controller.signal,
-      },
-    );
+    response = await fetch(apiUrl(`/v1beta/models/${encodeURIComponent(modelName())}:generateContent`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
   } catch (err) {
     if (err.name === 'AbortError') throw new AIError('timeout', 'Gemini не ответил за минуту. Попробуйте ещё раз.');
-    throw new AIError('network', 'Нет соединения с Gemini. Проверьте интернет.');
+    throw new AIError('network', 'Не удалось связаться с Gemini. Проверьте интернет или прокси в настройках AI.');
   } finally {
     clearTimeout(timer);
   }
@@ -157,28 +174,81 @@ async function callGemini({ parts, schema, temperature = 0.2, maxTokens = 1024 }
     throw mapHttpError(response.status, payload);
   }
 
-  const data = await response.json();
-  if (data.promptFeedback && data.promptFeedback.blockReason) {
-    throw new AIError('blocked', 'Запрос заблокирован фильтром безопасности. Попробуйте другое фото или описание.');
-  }
-  const text = (data.candidates && data.candidates[0] && data.candidates[0].content
-    && data.candidates[0].content.parts || []).map((p) => p.text || '').join('');
-  if (!text.trim()) throw new AIError('empty', 'Модель вернула пустой ответ. Попробуйте ещё раз.');
+  return response.json();
+}
 
-  return extractJson(text);
+async function callGemini({ parts, schema, temperature = 0.2, maxTokens = 1024 }) {
+  // Разные ключи и модели по-разному переносят responseSchema и thinkingConfig,
+  // поэтому пробуем несколько вариантов запроса, прежде чем сдаться.
+  const attempts = [
+    { schema: true, thinking: /^gemini-2\.5-flash/.test(modelName()) },
+    { schema: true, thinking: false },
+    { schema: false, thinking: false },
+  ];
+
+  let lastError = null;
+
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i];
+    const generationConfig = { temperature, maxOutputTokens: maxTokens };
+    if (attempt.schema) {
+      generationConfig.responseMimeType = 'application/json';
+      generationConfig.responseSchema = schema;
+    }
+    if (attempt.thinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
+    const requestParts = attempt.schema
+      ? parts
+      : [...parts, { text: 'Верни только JSON-объект без пояснений и markdown.' }];
+
+    try {
+      const data = await requestGemini({
+        contents: [{ role: 'user', parts: requestParts }],
+        generationConfig,
+      });
+
+      if (data.promptFeedback && data.promptFeedback.blockReason) {
+        throw new AIError('blocked', 'Запрос заблокирован фильтром безопасности. Попробуйте другое фото или описание.');
+      }
+
+      const text = ((data.candidates && data.candidates[0] && data.candidates[0].content
+        && data.candidates[0].content.parts) || []).map((p) => p.text || '').join('');
+      if (!text.trim()) throw new AIError('empty', 'Модель вернула пустой ответ. Попробуйте ещё раз.');
+
+      return extractJson(text);
+    } catch (err) {
+      lastError = err;
+      const retryable = err instanceof AIError && err.status === 400 && !['key', 'location', 'quota'].includes(err.kind);
+      if (!retryable || i === attempts.length - 1) throw err;
+    }
+  }
+
+  throw lastError;
 }
 
 /* ---------- Ключ ---------- */
 
-export async function verifyKey(key) {
-  const res = await fetch(`${ENDPOINT}?key=${encodeURIComponent(key)}&pageSize=1`, {
-    headers: { Accept: 'application/json' },
-  });
-  if (res.ok) return { ok: true };
-  let payload = null;
-  try { payload = await res.json(); } catch (err) { /* noop */ }
-  const err = mapHttpError(res.status, payload);
-  return { ok: false, message: err.message };
+export async function verifyKey({ key = '', model = DEFAULT_MODEL, proxy = '' } = {}) {
+  const cleanKey = String(key || '').trim();
+  const cleanProxy = String(proxy || '').trim();
+  if (!cleanKey && !cleanProxy) return { ok: false, message: 'Вставьте ключ' };
+
+  const base = cleanProxy ? cleanProxy.replace(/\/+$/, '') : 'https://generativelanguage.googleapis.com';
+  const url = `${base}/v1beta/models/${encodeURIComponent(model || DEFAULT_MODEL)}:generateContent${cleanKey ? `?key=${encodeURIComponent(cleanKey)}` : ''}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }], generationConfig: { maxOutputTokens: 8 } }),
+    });
+    if (res.ok) return { ok: true };
+    const payload = await res.json().catch(() => null);
+    const err = mapHttpError(res.status, payload);
+    return { ok: false, message: err.message, details: err.details };
+  } catch (err) {
+    return { ok: false, message: 'Нет соединения с Gemini. Проверьте интернет.' };
+  }
 }
 
 function mountKeyForm(sheet, onSaved) {
@@ -205,8 +275,19 @@ function mountKeyForm(sheet, onSaved) {
 
     <label class="field">
       <span class="field__label">Модель</span>
-      <input class="input" type="text" data-model value="${esc(modelName())}" placeholder="gemini-2.5-flash" spellcheck="false">
-      <span class="field__hint">Обычно подходит gemini-2.5-flash. Если модель недоступна, укажите другую.</span>
+      <input class="input" type="text" data-model list="ai-models" value="${esc(modelName())}" placeholder="gemini-2.5-flash" spellcheck="false">
+      <datalist id="ai-models">
+        <option value="gemini-2.5-flash"></option>
+        <option value="gemini-2.5-flash-lite"></option>
+        <option value="gemini-2.0-flash"></option>
+        <option value="gemini-2.5-pro"></option>
+      </datalist>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Прокси (необязательно)</span>
+      <input class="input" type="url" data-proxy value="${esc((state.ai && state.ai.proxy) || '')}" placeholder="https://ваш-worker.workers.dev" spellcheck="false">
+      <span class="field__hint">Если Google блокирует Gemini в вашей стране — укажите адрес своего Worker. Инструкция в README.</span>
     </label>
 
     <div class="ai-key-status" data-status hidden></div>
@@ -222,6 +303,7 @@ function mountKeyForm(sheet, onSaved) {
 
   const keyInput = qs('[data-key]', sheet.body);
   const modelInput = qs('[data-model]', sheet.body);
+  const proxyInput = qs('[data-proxy]', sheet.body);
 
   qs('[data-toggle]', sheet.body).addEventListener('click', () => {
     keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
@@ -236,9 +318,10 @@ function mountKeyForm(sheet, onSaved) {
 
   qs('[data-save]', sheet.footer).addEventListener('click', () => {
     const key = keyInput.value.trim();
-    if (!key) return toast('Вставьте ключ');
-    if (key.length < 20) return toast('Ключ слишком короткий');
-    setAI({ key, model: modelInput.value.trim() || DEFAULT_MODEL });
+    const proxy = proxyInput.value.trim();
+    if (!key && !proxy) return toast('Вставьте ключ');
+    if (key && key.length < 20) return toast('Ключ слишком короткий');
+    setAI({ key, proxy, model: modelInput.value.trim() || DEFAULT_MODEL });
     onSaved?.();
   });
 
@@ -252,15 +335,17 @@ function mountKeyForm(sheet, onSaved) {
   }
 
   qs('[data-check]', sheet.footer).addEventListener('click', async () => {
-    const key = keyInput.value.trim();
-    if (!key) return toast('Вставьте ключ');
     setStatus('Проверяем ключ…', 'pending');
-    try {
-      const result = await verifyKey(key);
-      if (result.ok) setStatus('Ключ работает — можно сохранять.', 'ok');
-      else setStatus(result.message, 'error');
-    } catch (err) {
-      setStatus('Не удалось проверить: нет соединения.', 'error');
+    const result = await verifyKey({
+      key: keyInput.value.trim(),
+      model: modelInput.value.trim(),
+      proxy: proxyInput.value.trim(),
+    });
+    if (result.ok) {
+      setStatus('Ключ работает — можно сохранять.', 'ok');
+    } else {
+      setStatus(result.message, 'error');
+      if (result.details) console.info('Gemini:', result.details);
     }
   });
 }
@@ -352,8 +437,8 @@ function mealChips(current) {
 
 /* ---------- Оценка блюда ---------- */
 
-export function openAIEstimate({ iso = todayISO(), meal = 'breakfast', onDone = null } = {}) {
-  let mode = 'photo';
+export function openAIEstimate({ iso = todayISO(), meal = 'breakfast', mode: initialMode = 'photo', onDone = null } = {}) {
+  let mode = initialMode === 'text' ? 'text' : 'photo';
   let photoData = null;
   let photoUrl = '';
   let note = '';
@@ -469,13 +554,19 @@ export function openAIEstimate({ iso = todayISO(), meal = 'breakfast', onDone = 
     sheet.setFooter('');
   }
 
-  function renderError(message) {
+  function renderError(err) {
+    const message = typeof err === 'string' ? err : err.message || 'Ошибка AI';
+    const details = typeof err === 'object' && err && err.details ? err.details : '';
+    const isLocation = typeof err === 'object' && err && err.kind === 'location';
     sheet.setBody(`
       <div class="empty">
         <div class="empty__icon">${icon('info')}</div>
         <div class="empty__title">Не получилось</div>
         <div class="empty__text">${esc(message)}</div>
-      </div>`);
+      </div>
+      ${isLocation ? '<button class="btn btn--block mt-8" type="button" data-proxy>Настроить прокси</button>' : ''}
+      ${details ? `<details class="ai-details"><summary>Технические детали</summary><pre>${esc(details)}</pre></details>` : ''}`);
+    qs('[data-proxy]', sheet.body)?.addEventListener('click', () => mountKeyForm(sheet, renderForm));
     sheet.setFooter(`
       <div class="btn-row">
         <button class="btn" type="button" data-back>Изменить</button>
@@ -555,7 +646,7 @@ export function openAIEstimate({ iso = todayISO(), meal = 'breakfast', onDone = 
       renderResult(result);
     } catch (err) {
       console.warn(err);
-      renderError(err instanceof AIError ? err.message : 'Ошибка AI. Попробуйте ещё раз.');
+      renderError(err instanceof AIError ? err : new AIError('http', 'Ошибка AI. Попробуйте ещё раз.'));
     }
   }
 
@@ -665,12 +756,15 @@ export function openAIHint({ iso = todayISO(), onDone = null } = {}) {
       renderHint(result);
     } catch (err) {
       console.warn(err);
+      const message = err instanceof AIError ? err.message : 'Ошибка AI';
+      const details = err instanceof AIError ? err.details : '';
       sheet.setBody(`
         <div class="empty">
           <div class="empty__icon">${icon('info')}</div>
           <div class="empty__title">Не получилось</div>
-          <div class="empty__text">${esc(err instanceof AIError ? err.message : 'Ошибка AI')}</div>
-        </div>`);
+          <div class="empty__text">${esc(message)}</div>
+        </div>
+        ${details ? `<details class="ai-details"><summary>Технические детали</summary><pre>${esc(details)}</pre></details>` : ''}`);
       sheet.setFooter(`
         <div class="btn-row">
           <button class="btn" type="button" data-back>Назад</button>

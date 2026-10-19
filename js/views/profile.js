@@ -4,7 +4,7 @@ import {
 import { computeTargets, bmi, bmiLabel } from '../calc.js';
 import { icon, esc, fmt, fmt1, toast, openSheet, confirmAction, qs, qsa, segmented } from '../ui.js';
 import { applyTheme } from '../theme.js';
-import { canInstall, promptInstall, isStandalone, isIOS } from '../pwa.js';
+import { canInstall, promptInstall, isStandalone, openInstallHelp } from '../pwa.js';
 import { APP_VERSION, REPO_URL } from '../config.js';
 import { openAISettings, hasKey } from '../ai.js';
 
@@ -23,29 +23,6 @@ function targetRow(label, value, unit = 'г') {
     <span class="small muted">${label}</span>
     <span class="small nums"><b>${fmt(value)}</b> ${unit}</span>
   </div>`;
-}
-
-function installSheet() {
-  const ios = isIOS();
-  const sheet = openSheet({
-    title: 'Установить «Норму»',
-    subtitle: 'Открывается как обычное приложение',
-    body: `
-      <ol class="small muted" style="line-height:1.7;padding-left:18px;margin:0">
-        ${ios ? `
-          <li>Откройте сайт в Safari.</li>
-          <li>Нажмите «Поделиться» <span class="tiny">(квадрат со стрелкой)</span>.</li>
-          <li>Выберите «На экран „Домой“» и подтвердите.</li>
-        ` : `
-          <li>Откройте меню браузера <span class="tiny">(⋮ или «…»)</span>.</li>
-          <li>Выберите «Установить приложение» или «Добавить на главный экран».</li>
-          <li>Подтвердите установку.</li>
-        `}
-      </ol>
-      <p class="small muted mt-16" style="line-height:1.5">После установки приложение работает офлайн, а данные остаются на устройстве.</p>`,
-    footer: '<button class="btn btn--block btn--primary" type="button" data-close>Понятно</button>',
-  });
-  sheet.footer.querySelector('[data-close]').addEventListener('click', () => sheet.close());
 }
 
 export function header() {
@@ -391,6 +368,6 @@ export function render(root) {
       else toast('Установка отменена');
       return;
     }
-    installSheet();
+    openInstallHelp();
   });
 }

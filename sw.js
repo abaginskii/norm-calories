@@ -1,5 +1,5 @@
 /* Service worker: офлайн-режим и мгновенный запуск приложения. */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const CACHE = `norm-${VERSION}`;
 const SHELL = './index.html';
 
@@ -18,12 +18,14 @@ const ASSETS = [
   './js/config.js',
   './js/ai.js',
   './js/scan.js',
+  './js/addMenu.js',
   './js/store.js',
   './js/calc.js',
   './js/foods.js',
   './js/ui.js',
   './js/theme.js',
   './js/pwa.js',
+  './js/views/install.js',
   './js/views/onboarding.js',
   './js/views/diary.js',
   './js/views/picker.js',

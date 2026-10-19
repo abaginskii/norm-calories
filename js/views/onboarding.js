@@ -88,8 +88,8 @@ function stepIntro(container) {
           <svg viewBox="0 0 120 120" aria-hidden="true">
             <defs>
               <linearGradient id="onb-grad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#4ade80"/>
-                <stop offset="100%" stop-color="#0f9d58"/>
+                <stop offset="0%" stop-color="#a78bfa"/>
+                <stop offset="100%" stop-color="#5a48ef"/>
               </linearGradient>
             </defs>
             <circle class="ring__track" cx="60" cy="60" r="50"/>
@@ -270,8 +270,8 @@ function stepResult(container) {
             <svg viewBox="0 0 120 120" aria-hidden="true">
               <defs>
                 <linearGradient id="res-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#4ade80"/>
-                  <stop offset="100%" stop-color="#0f9d58"/>
+                  <stop offset="0%" stop-color="#a78bfa"/>
+                  <stop offset="100%" stop-color="#5a48ef"/>
                 </linearGradient>
               </defs>
               <circle class="ring__track" cx="60" cy="60" r="50"/>

@@ -1,9 +1,9 @@
 import { state } from './store.js';
 
-const DARK_BG = '#0b1210';
-const LIGHT_BG = '#f4f6f2';
-const DARK_BAR = '#0b1210';
-const LIGHT_BAR = '#17a34a';
+const DARK_BG = '#0d0a15';
+const LIGHT_BG = '#f7f5fc';
+const DARK_BAR = '#0d0a15';
+const LIGHT_BAR = '#6d5dfc';
 
 export function isDark() {
   const pref = state.settings.theme || 'auto';

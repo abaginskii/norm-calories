@@ -22,7 +22,7 @@ function kcalChart(dates, values, target) {
   const padTop = 16;
   const padBottom = 26;
   const plotH = H - padTop - padBottom;
-  const maxValue = Math.max(target * 1.3, ...values, 100);
+  const maxValue = Math.max(target * 1.15, ...values, 100);
   const n = dates.length;
   const gap = n > 14 ? 3 : 6;
   const barW = (W - 8 - gap * (n - 1)) / n;

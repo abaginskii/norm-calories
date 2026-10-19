@@ -1,7 +1,9 @@
-import { state, subscribe } from './store.js';
+import { state, subscribe, update, todayISO } from './store.js';
 import { icon, qs } from './ui.js';
 import { applyTheme, watchTheme } from './theme.js';
-import { initPWA } from './pwa.js';
+import { initPWA, isStandalone } from './pwa.js';
+import { openAddMenu } from './addMenu.js';
+import * as install from './views/install.js';
 import * as diary from './views/diary.js';
 import * as products from './views/products.js';
 import * as progress from './views/progress.js';
@@ -30,14 +32,30 @@ function currentRoute() {
   return VIEWS[raw] ? raw : 'diary';
 }
 
-function buildTabbar() {
-  tabbarEl.innerHTML = TABS.map((tab) => `
+function tabButton(tab) {
+  return `
     <button class="tab" type="button" data-tab="${tab.id}" aria-label="${tab.label}">
       <span class="tab__icon">${icon(tab.icon)}</span>
       <span class="tab__label">${tab.label}</span>
-    </button>`).join('');
+    </button>`;
+}
+
+function buildTabbar() {
+  tabbarEl.innerHTML = `
+    ${tabButton(TABS[0])}
+    ${tabButton(TABS[1])}
+    <button class="fab" type="button" data-fab aria-label="Добавить еду">${icon('plus')}</button>
+    ${tabButton(TABS[2])}
+    ${tabButton(TABS[3])}
+  `;
 
   tabbarEl.addEventListener('click', (event) => {
+    const fab = event.target.closest('[data-fab]');
+    if (fab) {
+      const iso = currentRoute() === 'diary' ? diary.getIso() : todayISO();
+      openAddMenu({ iso });
+      return;
+    }
     const button = event.target.closest('[data-tab]');
     if (!button) return;
     const route = button.dataset.tab;
@@ -58,11 +76,27 @@ function markActiveTab(route) {
 function render() {
   scheduled = false;
 
+  // Сначала установка: в браузере показываем экран установки,
+  // в установленном PWA сразу открывается приложение.
+  if (!isStandalone() && !(state.settings && state.settings.browserMode)) {
+    appEl.classList.add('app--bare');
+    topbarEl.hidden = true;
+    tabbarEl.hidden = true;
+    lastRoute = 'install';
+    viewEl.classList.remove('view--onb');
+    viewEl.classList.add('view--bare');
+    install.render(viewEl, {
+      onContinue: () => update((s) => { s.settings.browserMode = true; }),
+    });
+    return;
+  }
+
   if (!state.profile) {
     appEl.classList.add('app--bare');
     topbarEl.hidden = true;
     tabbarEl.hidden = true;
     lastRoute = null;
+    viewEl.classList.remove('view--bare');
     onboarding.render(viewEl);
     return;
   }
@@ -72,19 +106,26 @@ function render() {
   const changed = lastRoute !== route;
 
   appEl.classList.remove('app--bare');
-  topbarEl.hidden = false;
+  viewEl.classList.remove('view--bare', 'view--onb');
   tabbarEl.hidden = false;
 
   if (changed) window.scrollTo(0, 0);
   const scrollY = window.scrollY;
 
   try {
-    viewEl.classList.remove('view--onb');
-    topbarEl.replaceChildren(mod.header());
+    const head = mod.header ? mod.header() : null;
+    if (head) {
+      topbarEl.hidden = false;
+      topbarEl.replaceChildren(head);
+    } else {
+      topbarEl.hidden = true;
+      topbarEl.replaceChildren();
+    }
     mod.render(viewEl, { route });
     requestAnimationFrame(() => window.scrollTo(0, changed ? 0 : scrollY));
   } catch (err) {
     console.error(err);
+    topbarEl.hidden = true;
     viewEl.innerHTML = `
       <div class="empty">
         <div class="empty__icon">${icon('info')}</div>
@@ -109,6 +150,8 @@ window.addEventListener('hashchange', () => {
   lastRoute = null;
   render();
 });
+
+window.addEventListener('norm:installable', scheduleRender);
 
 subscribe(scheduleRender);
 

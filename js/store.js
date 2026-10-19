@@ -27,8 +27,8 @@ function blankState() {
     customFoods: [],
     recents: [],
     favorites: [],
-    settings: { theme: 'auto' },
-    ai: { key: '', model: 'gemini-2.5-flash' },
+    settings: { theme: 'auto', browserMode: false },
+    ai: { key: '', model: 'gemini-2.5-flash', proxy: '' },
     barcodeCache: {},
   };
 }
@@ -397,7 +397,7 @@ export function cachedBarcode(code) {
 
 export function exportPayload() {
   const { ai, ...rest } = state;
-  return { ...rest, ai: { key: '', model: (ai && ai.model) || 'gemini-2.5-flash' } };
+  return { ...rest, ai: { key: '', proxy: '', model: (ai && ai.model) || 'gemini-2.5-flash' } };
 }
 
 export function toggleFavorite(foodId) {
