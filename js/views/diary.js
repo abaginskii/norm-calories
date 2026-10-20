@@ -1,204 +1,133 @@
-import {
-  state, MEALS, todayISO, addDays, getDay, dayTotals, mealTotals,
-  formatDayTitle, formatDaySub, streak, mealForNow, isoDate, parseISO,
-} from '../store.js';
-import { computeTargets, ratio } from '../calc.js';
-import { icon, esc, fmt } from '../ui.js';
+import { state, MEALS, todayISO, dayEntries, dayTotals, formatFullDate, mealForNow, removeEntry, parseISO, queueTextMeal, dequeueTextMeal } from '../store.js';
+import { icon, esc, fmt, fmt1, toast, openSheet, qs } from '../ui.js';
 import { openFoodPicker, openEntryEditor, openProductEditor } from './picker.js';
 import { openScanner } from '../scan.js';
-import { openAIEstimate, openAIHint } from '../ai.js';
+import { openAIEstimate, openAISettings, logTextMeal, hasKey } from '../ai.js';
 
 let iso = todayISO();
+let draft = '';
+let pending = false;
+let draining = false;
+export function getIso() { return iso; }
+export function focusComposer() { document.querySelector('[data-composer-input]')?.focus(); }
+export function header() { return null; }
 
-export function getIso() {
-  return iso;
+async function drainQueue() {
+  if (draining || !navigator.onLine || !hasKey() || !state.pendingLogs.length) return;
+  draining = true;
+  try {
+    for (const item of [...state.pendingLogs]) {
+      if (!navigator.onLine) break;
+      try {
+        await logTextMeal(item);
+        dequeueTextMeal(item.id);
+        toast('Запись из офлайн-очереди добавлена');
+      } catch (err) { break; }
+    }
+  } finally { draining = false; }
+}
+window.addEventListener('online', drainQueue);
+
+function dateLabel() {
+  const d = parseISO(iso);
+  return `${d.getDate()} ${new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(d)}`;
 }
 
-function targetsFor() {
-  return state.targets || computeTargets(state.profile || {});
+function openDate(root) {
+  const sheet = openSheet({
+    title: 'Выбрать день', subtitle: formatFullDate(iso),
+    body: `<label class="field"><span class="field__label">Дата</span><input class="input" type="date" data-date value="${iso}"></label>`,
+    footer: '<button class="btn btn--primary btn--block" type="button" data-select>Показать день</button>',
+  });
+  qs('[data-select]', sheet.footer).addEventListener('click', () => {
+    const value = qs('[data-date]', sheet.body).value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    iso = value; sheet.close(); render(root);
+  });
 }
 
-function mondayOf(value) {
-  const date = parseISO(value);
-  const shift = (date.getDay() + 6) % 7;
-  date.setDate(date.getDate() - shift);
-  return isoDate(date);
-}
-
-function weekdayShort(date) {
-  return ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'][date.getDay()];
-}
-
-function weekStrip() {
-  const start = mondayOf(iso);
-  const today = todayISO();
-  return [0, 1, 2, 3, 4, 5, 6].map((offset) => {
-    const dayIso = addDays(start, offset);
-    const date = parseISO(dayIso);
-    const active = dayIso === iso;
-    const isToday = dayIso === today;
-    return `
-      <button class="week-day ${active ? 'week-day--active' : ''} ${isToday ? 'week-day--today' : ''}" type="button" data-day="${dayIso}">
-        <span>${weekdayShort(date)}</span>
-        <b>${date.getDate()}</b>
-      </button>`;
-  }).join('');
-}
-
-function macroChip(label, value, target) {
-  const percent = target ? Math.round((value / target) * 100) : 0;
-  return `
-    <div class="hero__macro">
-      <b>${percent}%</b>
-      <span>${label}</span>
-      <small>${Math.round(value)} / ${Math.round(target)} г</small>
-    </div>`;
-}
-
-function entryHtml(entry) {
+function feedItem(entry) {
+  const meal = MEALS.find((m) => m.id === entry.meal) || MEALS[3];
   const factor = (Number(entry.grams) || 0) / 100;
-  return `
-    <button class="entry" type="button" data-entry="${entry.id}">
-      <span class="entry__main">
-        <span class="entry__name">${esc(entry.name)}</span>
-        <span class="entry__meta">${fmt(entry.grams)} г · Б ${Math.round(entry.per.protein * factor)} · Ж ${Math.round(entry.per.fat * factor)} · У ${Math.round(entry.per.carb * factor)}</span>
-      </span>
-      <span class="entry__kcal">${Math.round(entry.per.kcal * factor)}<small> ккал</small></span>
-    </button>`;
-}
-
-function mealHtml(meal) {
-  const day = getDay(iso);
-  const list = (day && day.meals && day.meals[meal.id]) || [];
-  const totals = mealTotals(iso, meal.id);
-  return `
-    <section class="meal">
-      <div class="meal__head">
-        <span class="meal__icon">${icon(meal.icon)}</span>
-        <span class="meal__title">${meal.name}</span>
-        <span class="meal__kcal">${list.length ? `${fmt(Math.round(totals.kcal))} ккал` : '—'}</span>
-        <button class="meal__add" type="button" data-add="${meal.id}" aria-label="Добавить в «${meal.name}»">${icon('plus')}</button>
-      </div>
-      ${list.length
-        ? `<div class="meal__list">${list.map(entryHtml).join('')}</div>`
-        : '<div class="meal__empty">Пока пусто</div>'}
-    </section>`;
-}
-
-/** На дневнике своя шапка, общий топбар не нужен. */
-export function header() {
-  return null;
+  const kcal = Math.round((entry.per.kcal || 0) * factor);
+  const time = Number.isFinite(Number(entry.createdAt)) ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(new Date(entry.createdAt)) : '—';
+  const fiber = entry.per.fiber == null ? '' : ` · Клетчатка ${fmt1(entry.per.fiber * factor)} г`;
+  return `<div class="norm-feed-row" data-row="${entry.id}">
+    <button class="norm-feed-main" type="button" data-entry="${entry.id}">
+      <span class="norm-feed-left"><span class="norm-feed-icon">${icon(meal.icon)}</span><small>${time}</small></span>
+      <span class="norm-feed-copy"><span class="norm-feed-title"><span class="norm-kcal ${kcal > 400 ? 'norm-kcal--warm' : ''}">${icon('flame')} ${fmt(kcal)} ккал</span> ${esc(entry.name)}</span>
+      <span class="norm-feed-detail">${fmt(entry.grams)} г · Б ${fmt1((entry.per.protein || 0) * factor)} · У ${fmt1((entry.per.carb || 0) * factor)} · Ж ${fmt1((entry.per.fat || 0) * factor)}${fiber}</span></span>
+    </button><button class="norm-feed-delete" type="button" data-delete="${entry.id}" aria-label="Удалить ${esc(entry.name)}">${icon('trash')}</button></div>`;
 }
 
 export function render(root) {
-  const profile = state.profile || {};
-  const targets = targetsFor();
-  const totals = dayTotals(iso);
-  const left = targets.kcal - totals.kcal;
-  const over = left < 0;
-  const isToday = iso === todayISO();
-  const days = streak();
-  const initial = (profile.name || '').trim().charAt(0).toUpperCase();
-  const subtitle = isToday ? `сегодня, ${formatDaySub(iso)}` : `${formatDayTitle(iso).toLowerCase()}, ${formatDaySub(iso)}`;
-
-  root.innerHTML = `
-    <div class="home-head">
-      <button class="avatar-btn" type="button" data-profile aria-label="Профиль">
-        ${initial ? esc(initial) : icon('profile')}
-      </button>
-      <div class="home-head__title">
-        <b>Дневник</b>
-        <span>${esc(subtitle)}</span>
-      </div>
-      ${days > 0
-        ? `<button class="streak-pill" type="button" data-streak aria-label="Серия ${days} дней">${icon('flame')} ${days}</button>`
-        : '<span class="home-head__spacer"></span>'}
-    </div>
-
-    <section class="hero ${over ? 'hero--over' : ''}">
-      <div class="weekstrip">${weekStrip()}</div>
-
-      <div class="hero__main">
-        <button class="hero__nav" type="button" data-prev aria-label="Предыдущий день">${icon('chevronLeft')}</button>
-        <div class="hero__numbers">
-          <div class="hero__num">${fmt(Math.abs(Math.round(left)))}</div>
-          <div class="hero__caption">${over ? 'ккал сверх нормы' : 'ккал осталось'}</div>
-        </div>
-        <button class="hero__nav" type="button" data-next aria-label="Следующий день">${icon('chevronRight')}</button>
-      </div>
-
-      <div class="hero__bar"><i style="width:${Math.min(100, Math.round(ratio(totals.kcal, targets.kcal) * 100))}%"></i></div>
-      <div class="hero__sum">съедено <b>${fmt(Math.round(totals.kcal))}</b> из <b>${fmt(targets.kcal)}</b> ккал</div>
-
-      <div class="hero__macros">
-        ${macroChip('белки', totals.protein, targets.protein)}
-        ${macroChip('жиры', totals.fat, targets.fat)}
-        ${macroChip('углеводы', totals.carb, targets.carb)}
-      </div>
+  void drainQueue();
+  const total = dayTotals(iso);
+  const entries = dayEntries(iso).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const countWord = entries.length % 10 === 1 && entries.length % 100 !== 11 ? 'запись' : entries.length % 10 >= 2 && entries.length % 10 <= 4 && (entries.length % 100 < 12 || entries.length % 100 > 14) ? 'записи' : 'записей';
+  root.innerHTML = `<div class="norm-home">
+    <header class="norm-header">
+      <button class="norm-date" type="button" data-date-open>${esc(dateLabel())}<span>⌄</span></button>
+      <span class="norm-header-actions"><button class="norm-icon-button norm-icon-button--green" type="button" data-nutrition aria-label="Нутриенты">${icon('leaf')}</button><button class="norm-icon-button" type="button" data-settings aria-label="Настройки">${icon('settings')}</button></span>
+    </header>
+    <section class="norm-hero" aria-label="Съеденные калории"><div class="norm-hero-number"><strong>${fmt(Math.round(total.kcal))}</strong><span>/ккал</span></div><p>Съедено за день</p></section>
+    <section class="norm-sentence" aria-label="Сводка за день">
+      <p><span class="norm-inline-icon">${icon('leaf')}</span> <mark>${fmt(Math.round(total.kcal))} калорий</mark> <span>${entries.length} ${countWord}</span></p>
+      <p><button class="norm-text-button norm-blue" type="button" data-nutrition>${fmt1(total.protein)} г белка</button> <span>и</span> <mark>${fmt1(total.carb)} г углеводов</mark></p>
+      <p><span>${fmt1(total.fat)} г жиров</span>${total.fiberKnown ? ` <span>· ${fmt1(total.fiber)} г клетчатки</span>` : ''}</p>
     </section>
-
-    <div class="quick-pills">
-      <button class="quick-pill" type="button" data-scan>${icon('barcode')} Сканер</button>
-      <button class="quick-pill" type="button" data-ai>${icon('sparkles')} AI-оценка</button>
-      <button class="quick-pill" type="button" data-hint>${icon('flame')} Что добрать</button>
-    </div>
-
-    <div class="section-head">
-      <h2>Приёмы пищи</h2>
-      <span>${fmt(Math.round(totals.kcal))} ккал</span>
-    </div>
-
-    ${MEALS.map(mealHtml).join('')}
-
-    <p class="tiny muted center mt-16">Данные хранятся только на этом устройстве</p>
-  `;
-
-  root.querySelector('[data-profile]').addEventListener('click', () => { location.hash = '#/profile'; });
-  const streakBtn = root.querySelector('[data-streak]');
-  if (streakBtn) streakBtn.addEventListener('click', () => { location.hash = '#/progress'; });
-
-  root.querySelectorAll('[data-day]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      iso = btn.dataset.day;
+    <div class="norm-hairline"></div>
+    <div class="norm-section-head"><h2>Приёмы пищи</h2><span>${entries.length ? 'Новые сверху' : 'Начните с первой записи'}</span></div>
+    <div class="norm-feed">${pending ? `<div class="norm-pending"><span class="norm-feed-icon">${icon('sparkles')}</span><span><b>${esc(draft)}</b><small>Разбираем блюдо…</small></span></div>` : ''}
+    ${state.pendingLogs.filter((item) => item.iso === iso).map((item) => `<div class="norm-pending"><span class="norm-feed-icon">${icon('refresh')}</span><span><b>${esc(item.text)}</b><small>В очереди до появления сети</small></span></div>`).join('')}
+    ${entries.length ? entries.map(feedItem).join('') : `<div class="norm-empty"><span>${icon('leaf')}</span><h3>Пока ничего не записано</h3><p>Расскажите, что вы съели, или добавьте продукт из базы.</p></div>`}</div>
+    <div class="norm-quick-actions"><button type="button" data-food>${icon('plus')} Продукт</button><button type="button" data-scan>${icon('barcode')} Штрихкод</button><button type="button" data-photo>${icon('camera')} Фото</button></div>
+    <form class="norm-composer" data-composer><button class="norm-mic" type="button" data-mic aria-label="Диктовка">${icon('text')}</button><input data-composer-input type="text" enterkeyhint="send" autocomplete="off" aria-label="Что вы съели?" placeholder="Что вы съели?" value="${esc(draft)}"><button class="norm-send" type="submit" data-send aria-label="Добавить еду" ${!draft.trim() || pending ? 'disabled' : ''}>↑</button></form>
+  </div>`;
+  qs('[data-date-open]', root).addEventListener('click', () => openDate(root));
+  root.querySelectorAll('[data-nutrition]').forEach((b) => b.addEventListener('click', () => { location.hash = '#/nutrition'; }));
+  qs('[data-settings]', root).addEventListener('click', () => { location.hash = '#/profile'; });
+  qs('[data-food]', root).addEventListener('click', () => openFoodPicker({ iso, meal: mealForNow() }));
+  qs('[data-scan]', root).addEventListener('click', () => openScanner({ iso, meal: mealForNow(), createProduct: (code) => openProductEditor({ barcode: code }) }));
+  qs('[data-photo]', root).addEventListener('click', () => openAIEstimate({ iso, meal: mealForNow(), mode: 'photo' }));
+  const input = qs('[data-composer-input]', root);
+  input.addEventListener('input', () => { draft = input.value; qs('[data-send]', root).disabled = !draft.trim() || pending; });
+  qs('[data-mic]', root).addEventListener('click', () => { input.focus(); toast('Для диктовки используйте микрофон на клавиатуре'); });
+  qs('[data-composer]', root).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (pending || !draft.trim()) return;
+    if (!hasKey()) { openAISettings({ onSaved: () => { focusComposer(); void drainQueue(); } }); return; }
+    const submitted = draft.trim();
+    const targetIso = iso;
+    if (!navigator.onLine) {
+      queueTextMeal(targetIso, mealForNow(), submitted);
+      draft = '';
+      toast('Сохранили в очередь до появления сети');
       render(root);
-    });
+      return;
+    }
+    pending = true; render(root);
+    try {
+      await logTextMeal({ text: submitted, iso: targetIso, meal: mealForNow() });
+      if (draft.trim() === submitted) draft = '';
+      toast('Блюдо добавлено');
+    } catch (err) {
+      if (!navigator.onLine && err.kind === 'network') {
+        queueTextMeal(targetIso, mealForNow(), submitted);
+        draft = '';
+        toast('Сохранили в очередь до появления сети');
+      } else toast(err.message || 'Не удалось добавить блюдо', 4200);
+    }
+    finally { pending = false; render(root); }
   });
-
-  root.querySelector('[data-prev]').addEventListener('click', () => {
-    iso = addDays(iso, -1);
-    render(root);
-  });
-  root.querySelector('[data-next]').addEventListener('click', () => {
-    iso = addDays(iso, 1);
-    render(root);
-  });
-
-  root.querySelectorAll('[data-add]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      openFoodPicker({ iso, meal: btn.dataset.add });
-    });
-  });
-
-  root.querySelectorAll('[data-entry]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const day = getDay(iso);
-      if (!day) return;
-      const entry = Object.values(day.meals).flat().find((e) => e.id === btn.dataset.entry);
-      if (entry) openEntryEditor({ iso, entry });
-    });
-  });
-
-  root.querySelector('[data-scan]').addEventListener('click', () => {
-    openScanner({
-      iso,
-      meal: mealForNow(),
-      createProduct: (code) => openProductEditor({ barcode: code }),
-    });
-  });
-  root.querySelector('[data-ai]').addEventListener('click', () => {
-    openAIEstimate({ iso, meal: mealForNow() });
-  });
-  root.querySelector('[data-hint]').addEventListener('click', () => {
-    openAIHint({ iso });
+  root.querySelectorAll('[data-entry]').forEach((b) => b.addEventListener('click', () => {
+    const entry = entries.find((e) => e.id === b.dataset.entry);
+    if (entry) openEntryEditor({ iso, entry });
+  }));
+  root.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => { removeEntry(iso, b.dataset.delete); toast('Запись удалена'); }));
+  root.querySelectorAll('[data-row]').forEach((row) => {
+    let startX = 0;
+    row.addEventListener('touchstart', (e) => { startX = e.touches[0].clientX; }, { passive: true });
+    row.addEventListener('touchend', (e) => { if (startX - e.changedTouches[0].clientX > 64) row.classList.add('norm-feed-row--revealed'); }, { passive: true });
   });
 }

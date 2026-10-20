@@ -469,6 +469,7 @@ export function openProductEditor({ food = null, barcode = null, onSaved = null,
         <label class="field"><span class="field__label">Жиры, г</span><input class="input" data-fat type="number" inputmode="decimal" min="0" value="${initial.fat}" placeholder="0"></label>
         <label class="field"><span class="field__label">Углеводы, г</span><input class="input" data-carb type="number" inputmode="decimal" min="0" value="${initial.carb}" placeholder="0"></label>
       </div>
+      <label class="field"><span class="field__label">Клетчатка, г (если известна)</span><input class="input" data-fiber type="number" inputmode="decimal" min="0" value="${initial.fiber ?? ''}" placeholder="—"></label>
       <label class="field">
         <span class="field__label">Штрихкод (необязательно)</span>
         <input class="input" data-barcode inputmode="numeric" value="${esc(initial.barcode || '')}" placeholder="4600000000000">
@@ -492,6 +493,7 @@ export function openProductEditor({ food = null, barcode = null, onSaved = null,
       protein: Number(qs('[data-protein]', sheet.body).value) || 0,
       fat: Number(qs('[data-fat]', sheet.body).value) || 0,
       carb: Number(qs('[data-carb]', sheet.body).value) || 0,
+      fiber: qs('[data-fiber]', sheet.body).value === '' ? null : Math.max(0, Number(qs('[data-fiber]', sheet.body).value) || 0),
       barcode: String(qs('[data-barcode]', sheet.body).value || '').replace(/\D/g, '') || null,
       cat: 'Мои',
       custom: true,

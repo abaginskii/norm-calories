@@ -1,5 +1,5 @@
 /* Service worker: офлайн-режим и мгновенный запуск приложения. */
-const VERSION = '1.2.0';
+const VERSION = '1.3.1';
 const CACHE = `norm-${VERSION}`;
 const SHELL = './index.html';
 
@@ -8,6 +8,7 @@ const ASSETS = [
   SHELL,
   './styles.css',
   './manifest.webmanifest',
+  './data/ru-products.json',
   './icons/favicon.svg',
   './icons/favicon.ico',
   './icons/icon-192.png',
@@ -31,6 +32,7 @@ const ASSETS = [
   './js/views/picker.js',
   './js/views/products.js',
   './js/views/progress.js',
+  './js/views/nutrition.js',
   './js/views/profile.js',
   './vendor/zxing.min.js',
 ];
@@ -69,6 +71,18 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => caches.match(SHELL).then((r) => r || caches.match('./')))
     );
+    return;
+  }
+
+  // Код приложения обновляем из сети сразу, чтобы новый интерфейс не зависал на старом кеше.
+  if (/\.(?:js|css|webmanifest)$/.test(url.pathname)) {
+    event.respondWith(fetch(request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {});
+      }
+      return response;
+    }).catch(() => caches.match(request)));
     return;
   }
 

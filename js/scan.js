@@ -1,16 +1,32 @@
 /* Сканер штрихкодов и поиск продуктов в Open Food Facts.
    Камера: BarcodeDetector там, где он есть, иначе ZXing (vendor/zxing.min.js). */
 
-import { addEntry, cachedBarcode, cacheBarcode, MEALS } from './store.js';
+import { addEntry, cachedBarcode, cacheBarcode, MEALS, state } from './store.js';
 import { openSheet, icon, esc, fmt, fmt1, toast, qs, qsa } from './ui.js';
 
 const OFF_API = 'https://world.openfoodfacts.org/api/v2/product/';
 const OFF_FIELDS = [
   'product_name', 'product_name_ru', 'generic_name', 'brands', 'nutriments',
-  'quantity', 'image_front_small_url', 'code',
+  'quantity', 'image_front_small_url', 'code', 'nutrition_grades', 'nova_group',
 ].join(',');
 
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'];
+let russianProductsPromise;
+
+async function bundledRussianProduct(code) {
+  if (!russianProductsPromise) {
+    russianProductsPromise = fetch(new URL('../data/ru-products.json', import.meta.url))
+      .then((response) => response.ok ? response.json() : null)
+      .catch(() => null);
+  }
+  const catalog = await russianProductsPromise;
+  const p = catalog?.products?.[code];
+  return p ? {
+    barcode: code, name: p.name, brand: p.brand, kcal: p.kcal,
+    protein: p.protein, fat: p.fat, carb: p.carb, fiber: p.fiber,
+    nutritionGrade: p.grade, novaGroup: p.nova, source: 'off-bundled',
+  } : null;
+}
 
 export function normalizeCode(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 14);
@@ -40,14 +56,21 @@ export function parseProduct(raw, code) {
     protein: round1(n.proteins_100g),
     fat: round1(n.fat_100g),
     carb: round1(n.carbohydrates_100g),
+    fiber: n.fiber_100g == null ? null : round1(n.fiber_100g),
+    nutritionGrade: String(raw.nutrition_grades || '').toUpperCase(),
+    novaGroup: Number(raw.nova_group) || null,
     image: typeof raw.image_front_small_url === 'string' ? raw.image_front_small_url : '',
     source: 'off',
   };
 }
 
 export async function fetchProduct(code) {
+  const personal = state.customFoods.find((food) => food.barcode === code);
+  if (personal) return { ...personal, source: 'personal' };
   const cached = cachedBarcode(code);
   if (cached) return cached;
+  const bundled = await bundledRussianProduct(code);
+  if (bundled) return bundled;
 
   const url = `${OFF_API}${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`;
   const controller = new AbortController();
@@ -279,8 +302,10 @@ export function openScanner({ iso, meal = 'breakfast', createProduct = null, onD
           <span class="badge">${Math.round(product.kcal)} ккал / 100 г</span>
           <span class="scan-product__brand">${esc(product.brand || 'Без бренда')}</span>
           <span class="tiny muted">Б ${fmt1(product.protein)} · Ж ${fmt1(product.fat)} · У ${fmt1(product.carb)} на 100 г</span>
+          ${product.fiber != null ? `<span class="tiny muted">Клетчатка ${fmt1(product.fiber)} г / 100 г</span>` : ''}
         </div>
       </div>
+      ${(product.nutritionGrade && /^[A-E]$/.test(product.nutritionGrade)) || product.novaGroup ? `<div class="scan-quality">${product.nutritionGrade && /^[A-E]$/.test(product.nutritionGrade) ? `<span>Nutri-Score <b>${product.nutritionGrade}</b></span>` : ''}${product.novaGroup ? `<span>NOVA <b>${product.novaGroup}</b></span>` : ''}</div>` : ''}
 
       <div class="amount-row">
         <div class="stepper">
@@ -304,7 +329,7 @@ export function openScanner({ iso, meal = 'breakfast', createProduct = null, onD
         </div>
       </div>
 
-      <p class="tiny muted mt-16">Источник: Open Food Facts · значения могут отличаться от упаковки</p>
+      <p class="tiny muted mt-16">${product.source === 'personal' ? 'Ваш продукт' : 'Источник: Open Food Facts'} · значения могут отличаться от упаковки</p>
     `);
     sheet.setFooter(`
       <div class="btn-row">

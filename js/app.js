@@ -7,6 +7,7 @@ import * as install from './views/install.js';
 import * as diary from './views/diary.js';
 import * as products from './views/products.js';
 import * as progress from './views/progress.js';
+import * as nutrition from './views/nutrition.js';
 import * as profile from './views/profile.js';
 import * as onboarding from './views/onboarding.js';
 
@@ -17,7 +18,7 @@ const TABS = [
   { id: 'profile', label: 'Профиль', icon: 'profile' },
 ];
 
-const VIEWS = { diary, progress, products, profile };
+const VIEWS = { diary, nutrition, progress, products, profile };
 
 const appEl = qs('.app');
 const topbarEl = qs('#topbar');
@@ -106,8 +107,9 @@ function render() {
   const changed = lastRoute !== route;
 
   appEl.classList.remove('app--bare');
+  appEl.classList.toggle('app--norm', route === 'diary' || route === 'nutrition');
   viewEl.classList.remove('view--bare', 'view--onb');
-  tabbarEl.hidden = false;
+  tabbarEl.hidden = route === 'diary' || route === 'nutrition';
 
   if (changed) window.scrollTo(0, 0);
   const scrollY = window.scrollY;
@@ -159,6 +161,16 @@ buildTabbar();
 applyTheme();
 watchTheme();
 initPWA();
+if (window.visualViewport) {
+  const updateKeyboard = () => {
+    const viewport = window.visualViewport;
+    const occlusion = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+    document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(occlusion)}px`);
+  };
+  visualViewport.addEventListener('resize', updateKeyboard);
+  visualViewport.addEventListener('scroll', updateKeyboard);
+  updateKeyboard();
+}
 render();
 
 // Полезно для отладки из консоли.
