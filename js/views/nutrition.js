@@ -51,14 +51,17 @@ function score(iso) {
   const t = dayTotals(iso);
   if (!t.kcal) return null;
   const target = state.targets || computeTargets(state.profile || {});
-  const ratios = [
-    Math.abs(t.kcal - target.kcal) / Math.max(1, target.kcal),
-    Math.abs(t.protein - target.protein) / Math.max(1, target.protein),
-    Math.abs(t.carb - target.carb) / Math.max(1, target.carb),
-    Math.abs(t.fat - target.fat) / Math.max(1, target.fat),
-  ];
-  let value = Math.max(0, 100 - ratios.reduce((a, b) => a + Math.min(b, 2), 0) * 20);
-  if (t.fiberKnown) value = value * .9 + Math.min(1, t.fiber / 25) * 10;
+  const current = [t.protein * 4, t.carb * 4, t.fat * 9];
+  const desired = [target.protein * 4, target.carb * 4, target.fat * 9];
+  const currentSum = current.reduce((a, b) => a + b, 0);
+  const desiredSum = desired.reduce((a, b) => a + b, 0);
+  if (!currentSum || !desiredSum) return null;
+  const distance = current.reduce((sum, value, i) => sum + Math.abs(value / currentSum - desired[i] / desiredSum), 0) / 2;
+  let value = Math.max(0, 100 * (1 - distance));
+  if (t.fiberKnown) {
+    const fiberPerThousandKcal = t.fiber / Math.max(1, t.kcal) * 1000;
+    value = value * .9 + Math.min(1, fiberPerThousandKcal / 14) * 10;
+  }
   return Math.round(value * 10) / 10;
 }
 
@@ -69,7 +72,6 @@ export function render(root) {
   const chart = all.map((p, i) => {
     const total = p.total;
     const macroKcal = total.protein * 4 + total.carb * 4 + total.fat * 9;
-    const scale = macroKcal > 0 ? Math.min(1, total.kcal / macroKcal) : 0;
     const h = Math.min(100, Math.max(total.kcal ? 2 : 0, total.kcal / max * 100));
     const portions = macroKcal ? [total.protein * 4, total.carb * 4, total.fat * 9].map((v) => v / macroKcal * 100) : [0, 0, 0];
     return `<button class="nutri-column ${selected === p.id ? 'nutri-column--selected' : ''}" type="button" data-point="${p.id}" aria-label="${p.label}: ${fmt(Math.round(total.kcal))} ккал">
@@ -90,7 +92,7 @@ export function render(root) {
       ${active ? `<div class="nutri-tooltip"><b>${active.label} · ${fmt(Math.round(active.total.kcal))} ккал</b><span>Б ${fmt1(active.total.protein)} г · У ${fmt1(active.total.carb)} г · Ж ${fmt1(active.total.fat)} г</span></div>` : ''}
     </section>
     <section class="nutri-card nutri-fiber"><div><h2>Клетчатка сегодня</h2><strong>${dayTotals(todayISO()).fiberKnown ? `${fmt1(dayTotals(todayISO()).fiber)} г` : 'Нет данных'}</strong><p>Показывается, когда в продукте указана клетчатка.</p></div>${icon('leaf')}</section>
-    <p class="nutri-footnote">Индекс — ориентир по калориям и БЖУ относительно вашей цели, а не медицинская оценка. Сегменты графика отражают долю энергии из БЖУ.</p>
+    <p class="nutri-footnote">Индекс отражает баланс БЖУ относительно вашей цели и клетчатку, если она указана. Это не медицинская оценка. Сегменты графика отражают долю энергии из БЖУ.</p>
     <button class="nutri-log" type="button" data-log>+ Добавить еду</button>
   </div>`;
   qs('[data-back]', root).addEventListener('click', () => { location.hash = '#/diary'; });
