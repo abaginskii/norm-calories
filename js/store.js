@@ -30,6 +30,7 @@ function blankState() {
     settings: { theme: 'auto', browserMode: false },
     ai: { key: '', model: 'gemini-2.5-flash', proxy: '' },
     barcodeCache: {},
+    pendingLogs: [],
   };
 }
 
@@ -46,6 +47,7 @@ function normalize(raw) {
     settings: { ...base.settings, ...(raw.settings || {}) },
     ai: { ...base.ai, ...(raw.ai || {}) },
     barcodeCache: raw.barcodeCache && typeof raw.barcodeCache === 'object' ? raw.barcodeCache : {},
+    pendingLogs: Array.isArray(raw.pendingLogs) ? raw.pendingLogs : [],
   };
 }
 
@@ -202,7 +204,7 @@ export function dayEntries(iso) {
 }
 
 export function dayTotals(iso) {
-  const totals = { kcal: 0, protein: 0, fat: 0, carb: 0 };
+  const totals = { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0, fiberKnown: false };
   for (const entry of dayEntries(iso)) {
     const grams = Number(entry.grams) || 0;
     const factor = grams / 100;
@@ -210,6 +212,10 @@ export function dayTotals(iso) {
     totals.protein += (entry.per.protein || 0) * factor;
     totals.fat += (entry.per.fat || 0) * factor;
     totals.carb += (entry.per.carb || 0) * factor;
+    if (Number.isFinite(Number(entry.per.fiber)) && entry.per.fiber !== null && entry.per.fiber !== undefined) {
+      totals.fiber += Number(entry.per.fiber) * factor;
+      totals.fiberKnown = true;
+    }
   }
   return totals;
 }
@@ -232,7 +238,7 @@ export function addEntry(iso, mealId, food, grams) {
     id: uid(),
     foodId: food.id || null,
     name: food.name,
-    per: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb },
+    per: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb, fiber: food.fiber ?? null },
     grams: Math.max(1, Math.round(Number(grams) || 0)),
     meal: mealId,
     createdAt: Date.now(),
@@ -255,7 +261,7 @@ export function addEntries(iso, mealId, foods) {
     id: uid(),
     foodId: food.id || null,
     name: food.name,
-    per: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb },
+    per: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb, fiber: food.fiber ?? null },
     grams: Math.max(1, Math.round(Number(food.grams) || 0)),
     meal: mealId,
     createdAt: Date.now(),
@@ -299,6 +305,16 @@ export function removeEntry(iso, entryId) {
       day.meals[mealId] = day.meals[mealId].filter((e) => e.id !== entryId);
     }
   });
+}
+
+export function queueTextMeal(iso, meal, text) {
+  const item = { id: uid(), iso, meal, text: String(text).trim() };
+  update((s) => { s.pendingLogs.push(item); });
+  return item;
+}
+
+export function dequeueTextMeal(id) {
+  update((s) => { s.pendingLogs = s.pendingLogs.filter((item) => item.id !== id); });
 }
 
 export function setWeight(iso, weight) {
@@ -353,6 +369,7 @@ export function customFood(food) {
     protein: round1(food.protein),
     fat: round1(food.fat),
     carb: round1(food.carb),
+    fiber: food.fiber == null ? null : round1(food.fiber),
     custom: true,
   };
   update((s) => { s.customFoods.unshift(item); });

@@ -26,6 +26,7 @@ const ITEMS_SCHEMA = {
           protein: { type: 'number' },
           fat: { type: 'number' },
           carb: { type: 'number' },
+          fiber: { type: 'number' },
         },
         required: ['name', 'grams', 'kcal', 'protein', 'fat', 'carb'],
       },
@@ -72,6 +73,7 @@ const TEXT_PROMPT = [
   'Оцени вес каждой позиции в граммах и посчитай КБЖУ для этой порции.',
   'Важно: kcal/protein/fat/carb относятся к указанной порции grams, а не к 100 г.',
   'Если вес не указан, бери типичную порцию. Названия — по-русски, кратко.',
+  'Если можно оценить клетчатку, добавь fiber в граммах для порции; если нельзя — пропусти поле.',
   'note — одно короткое предложение с оговоркой про точность.',
 ].join(' ');
 
@@ -385,6 +387,7 @@ function normalizeItems(rawItems) {
         protein: Math.round(clampNum(item.protein, 0, 500)),
         fat: Math.round(clampNum(item.fat, 0, 500)),
         carb: Math.round(clampNum(item.carb, 0, 800)),
+        fiber: item.fiber == null ? null : Math.round(clampNum(item.fiber, 0, 100) * 10) / 10,
       };
     })
     .filter((item) => item.kcal > 0 && item.name);
@@ -420,9 +423,27 @@ function addItemsToDiary(iso, meal, items) {
       protein: item.protein * factor,
       fat: item.fat * factor,
       carb: item.carb * factor,
+      fiber: item.fiber == null ? null : item.fiber * factor,
     };
   });
-  addEntries(iso, meal, foods);
+  const entries = addEntries(iso, meal, foods);
+  if (!entries.length) throw new AIError('save', 'Не удалось сохранить блюдо. Попробуйте ещё раз.');
+  return entries;
+}
+
+/** Прямое добавление из капсулы главного экрана. Текст сохраняет вызывающая сторона при ошибке. */
+export async function logTextMeal({ text, iso = todayISO(), meal = 'breakfast' }) {
+  const description = String(text || '').trim();
+  if (!description) throw new AIError('input', 'Опишите, что вы съели.');
+  const result = await callGemini({
+    parts: [{ text: `${TEXT_PROMPT}\n\nОписание пользователя: """${description}"""` }],
+    schema: ITEMS_SCHEMA,
+    maxTokens: 1600,
+  });
+  const items = normalizeItems(result.items);
+  if (!items.length) throw new AIError('empty', result.note || 'Не удалось определить блюдо. Уточните описание.');
+  addItemsToDiary(iso, meal, items);
+  return items;
 }
 
 function mealChips(current) {
