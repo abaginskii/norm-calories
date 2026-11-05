@@ -3,6 +3,8 @@ import { icon, qs } from './ui.js';
 import { applyTheme, watchTheme } from './theme.js';
 import { initPWA, isStandalone } from './pwa.js';
 import { openAddMenu } from './addMenu.js';
+import { initCloud } from './cloud.js';
+import { toast } from './ui.js';
 import * as install from './views/install.js';
 import * as diary from './views/diary.js';
 import * as products from './views/products.js';
@@ -172,6 +174,19 @@ if (window.visualViewport) {
   updateKeyboard();
 }
 render();
+
+// Облако не задерживает первый экран: сверяемся в фоне.
+window.addEventListener('norma:cloud', () => { if (currentRoute() === 'profile') scheduleRender(); });
+initCloud().then(({ justLoggedIn, loginError } = {}) => {
+  if (justLoggedIn) {
+    if (!isStandalone()) update((st) => { st.settings.browserMode = true; });
+    toast('Вы вошли. Дневник сохраняется в облаке');
+  }
+  else if (loginError === 'failed') toast('orvo ID не подтвердил вход. Попробуйте ещё раз');
+  else if (loginError === 'expired') toast('Вход устарел. Нажмите «Войти» ещё раз');
+  else if (loginError === 'off') toast('Вход через orvo ID пока не настроен');
+  scheduleRender();
+});
 
 // Полезно для отладки из консоли.
 window.__norm = { state };

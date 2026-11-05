@@ -1,5 +1,6 @@
 /* AI-помощник на Gemini: оценка блюда по фото или описанию и подсказки по БЖУ.
-   Ключ хранится только в localStorage пользователя и уходит напрямую в Google. */
+   С orvo ID запросы идут через сервер Нормы на общем ключе с дневным лимитом.
+   Свой ключ по-прежнему можно указать: он хранится только в этом браузере и уходит напрямую в Google. */
 
 import {
   state, addEntries, dayTotals, todayISO, setAI, MEALS,
@@ -8,6 +9,7 @@ import { computeTargets } from './calc.js';
 import {
   openSheet, icon, esc, fmt, fmt1, toast, qs, qsa,
 } from './ui.js';
+import { cloud } from './cloud.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-2.5-flash';
@@ -86,9 +88,18 @@ export class AIError extends Error {
   }
 }
 
-export function hasKey() {
+function ownKey() {
   const ai = state.ai || {};
   return Boolean((ai.key && ai.key.trim()) || (ai.proxy && ai.proxy.trim()));
+}
+
+export function hasKey() {
+  return ownKey() || cloud.sharedAI;
+}
+
+/** Через общий ключ Нормы (вход через orvo ID), а не через свой. */
+export function usesShared() {
+  return !ownKey() && cloud.sharedAI;
 }
 
 function modelName() {
@@ -97,7 +108,9 @@ function modelName() {
 
 function apiBase() {
   const proxy = ((state.ai && state.ai.proxy) || '').trim();
-  return proxy ? proxy.replace(/\/+$/, '') : 'https://generativelanguage.googleapis.com';
+  if (proxy) return proxy.replace(/\/+$/, '');
+  if (usesShared()) return `${location.origin}/api/gemini`;
+  return 'https://generativelanguage.googleapis.com';
 }
 
 function apiUrl(path) {
@@ -120,10 +133,21 @@ function extractJson(text) {
   }
 }
 
+const PLAN_AI = { free: 5, plus: 40, premium: 150 };
+
 function mapHttpError(status, payload) {
-  const message = (payload && payload.error && payload.error.message) || '';
+  const message = (payload && payload.error && payload.error.message) || (payload && typeof payload.error === 'string' ? payload.error : '');
   const details = payload ? JSON.stringify(payload).slice(0, 700) : '';
   const make = (kind, text) => new AIError(kind, text, { status, details });
+
+  const limit = message.match(/^NORMA_LIMIT (\d+)\/(\d+) (\w+)/);
+  if (limit) {
+    const [, , max, plan] = limit;
+    const more = plan === 'free' ? ` С orvo plus их ${PLAN_AI.plus} в день, с premium — ${PLAN_AI.premium}.` : plan === 'plus' ? ` С premium их ${PLAN_AI.premium} в день.` : '';
+    return new AIError('limit', `На сегодня запросы к ИИ закончились: ${max} из ${max}. Новые появятся в полночь по Москве.${more}`, { status, details: '' });
+  }
+  if (status === 401 && usesShared()) return make('login', 'Войдите через orvo ID ещё раз, чтобы пользоваться ИИ.');
+  if (/^Общий ИИ/.test(message)) return make('server', message);
 
   if (/location is not supported|not available in your (country|region)/i.test(message)) {
     return make('location', 'Google не поддерживает Gemini из вашего региона. Включите VPN или укажите прокси в настройках AI.');
@@ -150,7 +174,7 @@ function mapHttpError(status, payload) {
 }
 
 async function requestGemini(body, { timeout = 60000 } = {}) {
-  if (!hasKey()) throw new AIError('no-key', 'Сначала добавьте ключ Gemini.');
+  if (!hasKey()) throw new AIError('no-key', 'Войдите через orvo ID или добавьте свой ключ Gemini.');
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -169,6 +193,9 @@ async function requestGemini(body, { timeout = 60000 } = {}) {
   } finally {
     clearTimeout(timer);
   }
+
+  const left = response.headers.get('x-norma-ai-left');
+  if (left !== null) cloud.noteAI(Number(left), Number(response.headers.get('x-norma-ai-limit')));
 
   if (!response.ok) {
     let payload = null;
@@ -220,7 +247,7 @@ async function callGemini({ parts, schema, temperature = 0.2, maxTokens = 1024 }
       return extractJson(text);
     } catch (err) {
       lastError = err;
-      const retryable = err instanceof AIError && err.status === 400 && !['key', 'location', 'quota'].includes(err.kind);
+      const retryable = err instanceof AIError && err.status === 400 && !['key', 'location', 'quota', 'limit'].includes(err.kind);
       if (!retryable || i === attempts.length - 1) throw err;
     }
   }
@@ -254,10 +281,16 @@ export async function verifyKey({ key = '', model = DEFAULT_MODEL, proxy = '' } 
 }
 
 function mountKeyForm(sheet, onSaved) {
-  sheet.setTitle('AI-помощник', 'Свой ключ Google Gemini');
+  sheet.setTitle('AI-помощник', cloud.on ? 'Свой ключ Google Gemini' : 'Вход или свой ключ');
   const current = (state.ai && state.ai.key) || '';
 
   sheet.setBody(`
+    ${cloud.on ? '' : `
+    <div class="ai-orvo">
+      <p><b>Без ключа через orvo ID.</b> ${PLAN_AI.free} запросов к ИИ в день бесплатно, с orvo plus — ${PLAN_AI.plus}. Дневник заодно сохранится в облаке.</p>
+      <button class="orvo-btn" type="button" data-orvo-login><span class="orvo-mark"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M81.6 45A32 32 0 1 1 55 18.4"/><circle cx="72.6" cy="27.4" r="9"/></svg></span><span>Войти с orvo ID</span></button>
+      <div class="ai-or"><span>или свой ключ</span></div>
+    </div>`}
     <div class="ai-key-note">
       ${icon('key')}
       <div>
@@ -294,6 +327,8 @@ function mountKeyForm(sheet, onSaved) {
 
     <div class="ai-key-status" data-status hidden></div>
   `);
+
+  qs('[data-orvo-login]', sheet.body)?.addEventListener('click', () => cloud.login());
 
   sheet.setFooter(`
     <div class="btn-row">
