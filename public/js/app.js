@@ -3,7 +3,8 @@ import { icon, qs } from './ui.js';
 import { applyTheme, watchTheme } from './theme.js';
 import { initPWA, isStandalone } from './pwa.js';
 import { openAddMenu } from './addMenu.js';
-import { initCloud } from './cloud.js';
+import { initCloud, merge } from './cloud.js';
+import { replaceState } from './store.js';
 import { toast } from './ui.js';
 import * as install from './views/install.js';
 import * as diary from './views/diary.js';
@@ -159,6 +160,22 @@ window.addEventListener('norm:installable', scheduleRender);
 
 subscribe(scheduleRender);
 
+// Перенос со старого адреса (abaginskii.github.io): дневник приходит в ссылке после «#».
+function importFromLink() {
+  const m = location.hash.match(/^#import=([A-Za-z0-9+/=]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search + '#/diary');
+  try {
+    const data = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+    if (!data || typeof data !== 'object' || !data.days) return;
+    replaceState(state.profile ? merge({ ...state }, data) : { ...data, settings: { ...(data.settings || {}), browserMode: true } });
+    setTimeout(() => toast('Дневник перенесён'), 300);
+  } catch (err) {
+    console.warn('Не удалось перенести дневник', err);
+  }
+}
+
+importFromLink();
 buildTabbar();
 applyTheme();
 watchTheme();
