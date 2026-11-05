@@ -1,9 +1,10 @@
 /* Service worker: офлайн-режим и мгновенный запуск приложения. */
-const VERSION = '2.0.0';
+const VERSION = '1.3.1';
 const CACHE = `norm-${VERSION}`;
-const SHELL = './app.html';
+const SHELL = './index.html';
 
 const ASSETS = [
+  './',
   SHELL,
   './styles.css',
   './manifest.webmanifest',
@@ -15,8 +16,6 @@ const ASSETS = [
   './icons/maskable-512.png',
   './icons/apple-touch-icon.png',
   './js/app.js',
-  './js/cloud.js',
-  './js/views/account.js',
   './js/config.js',
   './js/ai.js',
   './js/scan.js',
@@ -60,23 +59,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  // Сервер Нормы (вход, облако, ИИ) не кешируем.
-  if (url.pathname.startsWith('/api/')) return;
 
   // Навигация: сначала сеть, офлайн — сохранённая оболочка.
   if (request.mode === 'navigate') {
-    const isApp = url.pathname === '/app' || url.pathname === '/app.html';
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (isApp && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => {});
-          }
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => {});
           return response;
         })
-        // Офлайн открываем приложение, даже если просили лендинг.
-        .catch(() => caches.match(SHELL))
+        .catch(() => caches.match(SHELL).then((r) => r || caches.match('./')))
     );
     return;
   }

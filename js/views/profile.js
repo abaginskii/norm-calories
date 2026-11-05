@@ -6,9 +6,7 @@ import { icon, esc, fmt, fmt1, toast, openSheet, confirmAction, qs, qsa, segment
 import { applyTheme } from '../theme.js';
 import { canInstall, promptInstall, isStandalone, openInstallHelp } from '../pwa.js';
 import { APP_VERSION, REPO_URL } from '../config.js';
-import { openAISettings, hasKey, usesShared } from '../ai.js';
-import { accountCard, servicesCard, bindAccount } from './account.js';
-import { cloud } from '../cloud.js';
+import { openAISettings, hasKey } from '../ai.js';
 
 const GOALS = [
   { id: 'lose', name: 'Похудеть' },
@@ -69,8 +67,6 @@ export function render(root) {
       </div>
     </section>
 
-    ${accountCard()}
-
     <section class="card">
       <div class="card__head"><span class="card__title">Параметры</span></div>
       <label class="field">
@@ -129,15 +125,11 @@ export function render(root) {
     <section class="card">
       <div class="card__head">
         <span class="card__title">AI-помощник</span>
-        <span class="card__aside">${usesShared() ? 'через orvo ID' : hasKey() ? 'свой ключ' : 'не подключён'}</span>
+        <span class="card__aside">${hasKey() ? 'ключ добавлен' : 'не подключён'}</span>
       </div>
-      <p class="small muted" style="line-height:1.5">${usesShared()
-        ? 'Оценка блюда по фото или описанию и подсказки по БЖУ. Работает на общем ключе Нормы, ключ не нужен. Можно указать свой — тогда без дневного лимита.'
-        : 'Оценка блюда по фото или описанию и подсказки по БЖУ. Войдите через orvo ID, чтобы работало без ключа, или укажите свой ключ Google Gemini — он хранится только на этом устройстве.'}</p>
-      <button class="btn btn--block mt-16" type="button" data-ai>${icon('sparkles')} ${(state.ai && state.ai.key) ? 'Настроить ключ' : 'Свой ключ Gemini'}</button>
+      <p class="small muted" style="line-height:1.5">Оценка блюда по фото или описанию и подсказки по БЖУ. Работает на вашем ключе Google Gemini — он хранится только на этом устройстве.</p>
+      <button class="btn btn--block mt-16" type="button" data-ai>${icon('sparkles')} ${hasKey() ? 'Настроить ключ' : 'Добавить ключ'}</button>
     </section>
-
-    ${servicesCard()}
 
     <section class="card">
       <div class="card__head"><span class="card__title">Оформление</span></div>
@@ -309,8 +301,6 @@ export function render(root) {
   ));
 
   // AI
-  bindAccount(root);
-
   root.querySelector('[data-ai]').addEventListener('click', () => {
     openAISettings();
   });
@@ -360,9 +350,7 @@ export function render(root) {
   root.querySelector('[data-reset]').addEventListener('click', async () => {
     const ok = await confirmAction({
       title: 'Удалить все данные?',
-      text: cloud.on
-        ? 'Профиль, дневник, вес и свои продукты будут удалены с этого устройства и из облака. Отменить это будет нельзя.'
-        : 'Профиль, дневник, вес и свои продукты будут удалены с этого устройства. Отменить это будет нельзя.',
+      text: 'Профиль, дневник, вес и свои продукты будут удалены с этого устройства. Отменить это будет нельзя.',
       confirmText: 'Удалить всё',
     });
     if (!ok) return;

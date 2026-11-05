@@ -3,9 +3,6 @@ import { icon, qs } from './ui.js';
 import { applyTheme, watchTheme } from './theme.js';
 import { initPWA, isStandalone } from './pwa.js';
 import { openAddMenu } from './addMenu.js';
-import { initCloud, merge } from './cloud.js';
-import { replaceState } from './store.js';
-import { toast } from './ui.js';
 import * as install from './views/install.js';
 import * as diary from './views/diary.js';
 import * as products from './views/products.js';
@@ -160,22 +157,6 @@ window.addEventListener('norm:installable', scheduleRender);
 
 subscribe(scheduleRender);
 
-// Перенос со старого адреса (abaginskii.github.io): дневник приходит в ссылке после «#».
-function importFromLink() {
-  const m = location.hash.match(/^#import=([A-Za-z0-9+/=]+)$/);
-  if (!m) return;
-  history.replaceState(null, '', location.pathname + location.search + '#/diary');
-  try {
-    const data = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
-    if (!data || typeof data !== 'object' || !data.days) return;
-    replaceState(state.profile ? merge({ ...state }, data) : { ...data, settings: { ...(data.settings || {}), browserMode: true } });
-    setTimeout(() => toast('Дневник перенесён'), 300);
-  } catch (err) {
-    console.warn('Не удалось перенести дневник', err);
-  }
-}
-
-importFromLink();
 buildTabbar();
 applyTheme();
 watchTheme();
@@ -191,19 +172,6 @@ if (window.visualViewport) {
   updateKeyboard();
 }
 render();
-
-// Облако не задерживает первый экран: сверяемся в фоне.
-window.addEventListener('norma:cloud', () => { if (currentRoute() === 'profile') scheduleRender(); });
-initCloud().then(({ justLoggedIn, loginError } = {}) => {
-  if (justLoggedIn) {
-    if (!isStandalone()) update((st) => { st.settings.browserMode = true; });
-    toast('Вы вошли. Дневник сохраняется в облаке');
-  }
-  else if (loginError === 'failed') toast('orvo ID не подтвердил вход. Попробуйте ещё раз');
-  else if (loginError === 'expired') toast('Вход устарел. Нажмите «Войти» ещё раз');
-  else if (loginError === 'off') toast('Вход через orvo ID пока не настроен');
-  scheduleRender();
-});
 
 // Полезно для отладки из консоли.
 window.__norm = { state };

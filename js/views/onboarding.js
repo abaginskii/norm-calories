@@ -1,4 +1,3 @@
-import { cloud } from '../cloud.js';
 import { update, state } from '../store.js';
 import { computeTargets } from '../calc.js';
 import { FOODS } from '../foods.js';
@@ -131,21 +130,17 @@ function stepIntro(container) {
           <div class="list-row__icon">${icon('download')}</div>
           <div class="list-row__body">
             <div class="list-row__title">Работает офлайн</div>
-            <div class="list-row__sub">а с orvo ID дневник ещё и в облаке</div>
+            <div class="list-row__sub">данные хранятся только на вашем телефоне</div>
           </div>
         </div>
       </div>`,
-    footer: cloud.on
-      ? '<button class="btn btn--primary btn--block" data-next type="button">Начать</button>'
-      : `<button class="btn btn--primary btn--block" data-next type="button">Начать</button>
-         <button class="btn btn--ghost btn--block onb-orvo" data-orvo-login type="button">Уже есть дневник? Войти с orvo ID</button>`,
+    footer: '<button class="btn btn--primary btn--block" data-next type="button">Начать</button>',
   });
 
   qs('[data-next]', container).addEventListener('click', () => {
     step = 1;
     paint(container);
   });
-  qs('[data-orvo-login]', container)?.addEventListener('click', () => cloud.login());
 }
 
 function stepBody(container) {
