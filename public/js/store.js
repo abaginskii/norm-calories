@@ -1,5 +1,5 @@
 /* Хранилище состояния: профиль, цели, дни, продукты.
-   Всё лежит в localStorage — данные не покидают устройство. */
+   Основная копия лежит в localStorage. С orvo ID её копия ещё и в облаке Нормы (js/cloud.js). */
 
 const KEY = 'norm.state.v1';
 
@@ -31,6 +31,7 @@ function blankState() {
     ai: { key: '', model: 'gemini-2.5-flash', proxy: '' },
     barcodeCache: {},
     pendingLogs: [],
+    meta: { updatedAt: 0 },
   };
 }
 
@@ -48,6 +49,7 @@ function normalize(raw) {
     ai: { ...base.ai, ...(raw.ai || {}) },
     barcodeCache: raw.barcodeCache && typeof raw.barcodeCache === 'object' ? raw.barcodeCache : {},
     pendingLogs: Array.isArray(raw.pendingLogs) ? raw.pendingLogs : [],
+    meta: { updatedAt: 0, ...(raw.meta || {}) },
   };
 }
 
@@ -86,28 +88,61 @@ export function persist() {
   }
 }
 
+// Вызывается после каждого изменения, которое стоит отправить в облако.
+let onChange = null;
+export function setChangeHook(fn) { onChange = fn; }
+// Помечаем удалённое, чтобы облако не вернуло запись с другого устройства.
+function tombstone(s, id) {
+  if (!id) return;
+  s.meta = s.meta || {};
+  const deleted = s.meta.deleted || (s.meta.deleted = {});
+  deleted[id] = Date.now();
+  const keys = Object.keys(deleted);
+  if (keys.length > 2000) keys.sort((a, b) => deleted[a] - deleted[b]).slice(0, keys.length - 2000).forEach((k) => delete deleted[k]);
+}
+
+function touched() {
+  state.meta = { ...(state.meta || {}), updatedAt: Date.now() };
+}
+
 /** Изменение состояния + сохранение + оповещение подписчиков. */
 export function update(mutator) {
   mutator(state);
+  touched();
   const ok = persist();
   emit();
+  if (onChange) onChange();
   return ok;
 }
 
-export function replaceState(next) {
+/** fromCloud: копия пришла из облака, отправлять её обратно не нужно. */
+export function replaceState(next, { fromCloud = false } = {}) {
   const clean = normalize(next);
+  const local = { ai: state.ai, barcodeCache: state.barcodeCache, settings: state.settings };
   for (const key of Object.keys(state)) delete state[key];
   Object.assign(state, clean);
+  if (fromCloud) {
+    // Ключ Gemini и кеш штрихкодов живут только на этом устройстве.
+    state.ai = local.ai || state.ai;
+    state.barcodeCache = local.barcodeCache || {};
+    state.settings = { ...state.settings, browserMode: !!(local.settings && local.settings.browserMode) };
+  } else {
+    touched();
+  }
   persist();
   emit();
+  if (!fromCloud && onChange) onChange();
 }
 
 export function resetState() {
   const fresh = blankState();
+  const ai = state.ai;
   for (const key of Object.keys(state)) delete state[key];
-  Object.assign(state, fresh);
+  Object.assign(state, fresh, { ai });
+  state.meta = { updatedAt: Date.now(), resetAt: Date.now() };
   persist();
   emit();
+  if (onChange) onChange({ reset: true });
 }
 
 /* ---------- Даты ---------- */
@@ -303,6 +338,7 @@ export function removeEntry(iso, entryId) {
     if (!day || !day.meals) return;
     for (const mealId of Object.keys(day.meals)) {
       day.meals[mealId] = day.meals[mealId].filter((e) => e.id !== entryId);
+      tombstone(s, entryId);
     }
   });
 }
@@ -386,6 +422,7 @@ export function updateCustomFood(id, patch) {
 export function deleteCustomFood(id) {
   update((s) => {
     s.customFoods = s.customFoods.filter((f) => f.id !== id);
+    tombstone(s, id);
     s.favorites = s.favorites.filter((fid) => fid !== id);
     s.recents = s.recents.filter((fid) => fid !== id);
   });
